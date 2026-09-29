@@ -1,0 +1,60 @@
+systolic-array-accelerator/
+├── README.md                  # overview, build/run instructions, results summary
+├── Makefile                   # top-level targets: sim, golden, synth, bench
+├── .gitignore
+│
+├── rtl/                       # synthesizable Verilog only
+│   ├── pe.v                   # processing element: INT8 MAC, output-stationary accumulator
+│   ├── systolic_array.v       # parameterized N×N grid (parameter N, DATA_W, ACC_W)
+│   ├── input_skew.v           # skew/delay registers for A rows and B columns
+│   ├── controller.v           # FSM: load, compute, drain, done
+│   ├── mem_a.v / mem_b.v      # input buffers (BRAM-inferred)
+│   ├── mem_c.v                # output buffer
+│   ├── top.v                  # accelerator top level
+│   └── params.vh              # shared parameters/defines
+│
+├── tb/                        # testbenches (simulation only)
+│   ├── tb_pe.v                # unit test for one PE
+│   ├── tb_systolic_array.v    # array-level test
+│   ├── tb_top.v               # full system test, reads vectors, compares to golden
+│   └── tasks/                 # shared checker/helper tasks
+│
+├── golden/                    # software golden model + test data generation
+│   ├── golden_matmul.py       # INT8 matmul reference (NumPy, with matching overflow/accumulator width)
+│   ├── gen_vectors.py         # random + corner-case matrices -> .hex/.mem files
+│   └── compare.py             # diff RTL output vs golden output
+│
+├── data/                      # generated, gitignored if large
+│   ├── inputs/                # A_*.mem, B_*.mem
+│   ├── expected/              # C_golden_*.mem
+│   └── results/               # C_rtl_*.mem (dumped by testbench)
+│
+├── sim/                       # simulator scripts and outputs
+│   ├── run_sim.sh             # or .do / .tcl for ModelSim/Questa/Vivado xsim/Icarus
+│   ├── wave.do                # waveform setup
+│   └── out/                   # logs, VCD (gitignored)
+│
+├── fpga/                      # board-specific flow
+│   ├── constraints/           # .xdc / .sdc (clock, IO)
+│   ├── scripts/               # build.tcl, program.tcl
+│   ├── project/               # Vivado/Quartus project (gitignored)
+│   └── reports/               # utilization, timing, power reports for each N
+│
+├── sw/                        # software side for benchmarking
+│   ├── matmul_seq.c           # sequential baseline (or .py)
+│   ├── host_driver.*          # host/UART/AXI code to send matrices and read results
+│   └── bench.c / bench.py     # timing harness
+│
+├── bench/                     # benchmarking data and analysis
+│   ├── run_bench.sh
+│   ├── results.csv            # N, cycles, fmax, latency, sw time, speedup
+│   └── plot_speedup.py        # generates figures
+│
+├── docs/
+│   ├── architecture.md        # dataflow explanation, timing diagram of output-stationary
+│   ├── figures/               # block diagrams, waveforms, plots
+│   ├── report/                # LaTeX/Word report sources
+│   └── slides/
+│
+└── scripts/                   # misc helpers (lint, format, regression runner)
+    └── regress.sh             # runs all tests across multiple N values
