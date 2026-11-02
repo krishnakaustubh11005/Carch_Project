@@ -1,0 +1,10 @@
+# Generated verification outputs; hardware and testbench sources remain visible.
+/sim/build/
+/sim/vcd/
+/golden/vectors/
+/golden/expected/
+__pycache__/
+*.py[cod]
+/Reading/
+/*.md
+/docs/
