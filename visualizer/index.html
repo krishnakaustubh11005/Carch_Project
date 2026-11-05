@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Carch RTL Explorer</title>
+    <link rel="stylesheet" href="style.css">
+    <link rel="stylesheet" href="schematic.css">
+</head>
+<body>
+    <header class="topbar">
+        <a class="brand" href="#" aria-label="Carch home"><span class="brand-mark">C</span><span>CARCH <small>RTL EXPLORER</small></span></a>
+        <div class="top-status"><i></i> LOCAL RTL VIEW <span id="module-count">Loading…</span></div>
+    </header>
+    <main class="layout">
+        <aside class="sidebar">
+            <label class="search"><span>⌕</span><input id="search" type="search" placeholder="Find a module…"></label>
+            <div class="side-label">DESIGN FILES <span>RTL</span></div>
+            <nav id="module-list" aria-label="RTL modules"></nav>
+            <div class="sidebar-footer"><span class="dot"></span> Sources: <code>rtl/*.v</code><br><small>Rebuild to elaborate RTL changes</small></div>
+        </aside>
+        <section class="workspace">
+            <div class="crumb"><span>PROJECT</span><b>/</b><span>RTL</span><b>/</b><strong id="crumb-module">—</strong></div>
+            <div id="content" class="content"><div class="loading">Loading RTL modules…</div></div>
+            <footer>Elaborated RTL connectivity · Not FPGA placement, timing, or simulation</footer>
+        </section>
+    </main>
+    <script src="/vendor/elk.js"></script>
+    <script src="app.js"></script>
+</body>
+</html>

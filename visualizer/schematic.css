@@ -1,0 +1,22 @@
+.module-link { width:100%; border:0; background:none; text-align:left; }
+.hierarchy-trail { display:flex; gap:8px; align-items:center; margin:22px 0; flex-wrap:wrap; }
+button { cursor:pointer; border:1px solid #35505a; border-radius:5px; background:#15252c; color:#c2d8db; padding:7px 10px; font:11px monospace; }
+button:hover { border-color:#55d6c2; }
+.schematic-workspace { display:grid; grid-template-columns:minmax(0,1fr) 235px; border:1px solid var(--line); border-radius:0 0 8px 8px; overflow:hidden; }
+.schematic-workspace .graph-viewport { height:620px; }
+#inspector { padding:16px; border-left:1px solid var(--line); background:#111920; overflow:auto; max-height:620px; overflow-wrap:anywhere; }
+#inspector h3 { color:#55d6c2; font:13px monospace; margin:0 0 12px; }
+#inspector h4 { font:11px monospace; margin:20px 0 8px; }
+#inspector p, #inspector li { font:11px/1.7 monospace; color:#94aab3; }
+#inspector ul { padding-left:14px; }
+.net-hit { stroke:transparent; stroke-width:14px; fill:none; cursor:pointer; }
+.net { pointer-events:none; stroke:#73afa9; stroke-width:1.5px; opacity:1; }
+.tracing [data-net]:not(.selected) { opacity:.15; }
+[data-net].selected .net { stroke:#ffcf75; stroke-width:3; filter:drop-shadow(0 0 3px #ffcf75); }
+.node { cursor:pointer; }
+.node.selected .node-body { stroke:#ffcf75; stroke-width:2; }
+.node-title { font-size:12px; }
+.pin-label { font-size:10px; }
+.build-error { white-space:pre-wrap; overflow-wrap:anywhere; padding:18px; color:#ffaf99; background:#241c1c; border:1px solid #633; line-height:1.6; }
+.build-meta { margin-top:12px; font-size:10px; line-height:1.6; }
+@media(max-width:1000px) { .schematic-workspace { grid-template-columns:1fr; } #inspector { border-left:0; border-top:1px solid var(--line); max-height:250px; } }

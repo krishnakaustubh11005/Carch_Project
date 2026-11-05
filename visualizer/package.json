@@ -1,0 +1,9 @@
+{
+  "name": "carch-rtl-explorer",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Local elaborated RTL schematic viewer",
+  "dependencies": {
+    "elkjs": "0.11.0"
+  }
+}

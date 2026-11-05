@@ -1,0 +1,2 @@
+# Optional portable Yosys, used by `make visualize-setup`.
+yowasp-yosys==0.70.0.0.post1259
