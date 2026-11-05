@@ -483,8 +483,9 @@ class TestbenchSyntaxTests(unittest.TestCase):
         arguments, count = [], {"half_adder": 4, "full_adder": 8,
                                 "booth_recoder": 1288,
                                 "systolic_4_4_array": 0,
-                                "accelerator_4x4": 0}.get(name, 8)
-        if name in ("systolic_4_4_array", "accelerator_4x4"):
+                                "accelerator_4x4": 0,
+                                "accelerator_mmio": 0}.get(name, 8)
+        if name in ("systolic_4_4_array", "accelerator_4x4", "accelerator_mmio"):
             vectors = directory / "array.txt"
             model.write_array_vectors(ROOT / "golden/array_matrices.json", vectors)
             arguments.append(f"+VECTOR_FILE={vectors}")
@@ -508,7 +509,7 @@ class TestbenchSyntaxTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         result = subprocess.run(["vvp", str(binary)] + arguments, cwd=directory,
                                 capture_output=True, text=True, timeout=10)
-        if name in ("booth_recoder", "booth_pp_gen", "compressor_tree", "booth_mac_datapath", "signed_multiplier", "pe_booth_csa", "systolic_4_4_array", "accelerator_4x4"):
+        if name in ("booth_recoder", "booth_pp_gen", "compressor_tree", "booth_mac_datapath", "signed_multiplier", "pe_booth_csa", "systolic_4_4_array", "accelerator_4x4", "accelerator_mmio"):
             # This newer testbench also fails the simulator process itself.
             self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
         else:
