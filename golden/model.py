@@ -61,6 +61,95 @@ def golden_model_int8_matrix_multiply(a, b):
     return matrix_multiply(a, b)
 
 
+def write_array_vectors(matrices_path, vectors_path, results_path=None):
+    """Export 4xK times Kx4 cases, each producing a 4x4 result.
+
+    Per case: decimal K, then 4*K row-major A/B byte pairs in hexadecimal,
+    then 16 row-major signed 24-bit expected C values in hexadecimal.
+    Python arithmetic is independent of RTL state and scheduling.
+    """
+    document = json.loads(Path(matrices_path).read_text())
+    cases = document.get("cases") if isinstance(document, dict) else None
+    if not isinstance(cases, list) or not cases:
+        raise ValueError("array test requires a nonempty list of matrix pairs in 'cases'")
+    results = []
+    records = []
+    for case in cases:
+        if not isinstance(case, dict):
+            raise ValueError("each case must contain A and B matrices")
+        a, b = case.get("A"), case.get("B")
+        if not isinstance(a, list) or len(a) != 4 or not isinstance(a[0], list):
+            raise ValueError("A must have shape 4xK")
+        inner = len(a[0])
+        if not 1 <= inner <= 256:
+            raise ValueError("K must be between 1 and K_MAX=256")
+        if any(not isinstance(row, list) or len(row) != inner for row in a):
+            raise ValueError("A must have shape 4xK")
+        if (not isinstance(b, list) or len(b) != inner or
+                any(not isinstance(row, list) or len(row) != 4 for row in b)):
+            raise ValueError("B must have shape Kx4 matching A")
+        for name, matrix in (("A", a), ("B", b)):
+            if any(type(value) is not int or not -128 <= value <= 127
+                   for row in matrix for value in row):
+                raise ValueError(f"{name} entries must be signed INT8 integers")
+        c = matrix_multiply(a, b, data_w=8, k_max=256, acc_w=24)
+        results.append({"K": inner, "A": a, "B": b, "C": c})
+        records.append(f"{inner}\n")
+        a_flat = [value for row in a for value in row]
+        b_flat = [value for row in b for value in row]
+        records.extend(f"{av & 0xff:02x} {bv & 0xff:02x}\n"
+                       for av, bv in zip(a_flat, b_flat))
+        records.extend(f"{value & 0xffffff:06x}\n" for row in c for value in row)
+    vectors_path = Path(vectors_path)
+    vectors_path.parent.mkdir(parents=True, exist_ok=True)
+    vectors_path.write_text("".join(records))
+    if results_path is not None:
+        results_path = Path(results_path)
+        results_path.parent.mkdir(parents=True, exist_ok=True)
+        results_path.write_text(json.dumps({"DATA_W": 8, "ACC_W": 24,
+                                           "cases": results}, indent=2) + "\n")
+    return results
+
+
+def array_stream(count=100, seed=20261105):
+    """Reproducible directed corners followed by full-range random INT8 pairs."""
+    if type(count) is not int or count < 1:
+        raise ValueError("stream count must be a positive integer")
+    rng = random.Random(seed)
+    def random_matrix():
+        return [[rng.randint(-128, 127) for _ in range(4)] for _ in range(4)]
+
+    identity = [[int(row == col) for col in range(4)] for row in range(4)]
+    zero = [[0]*4 for _ in range(4)]
+    low = [[-128]*4 for _ in range(4)]
+    high = [[127]*4 for _ in range(4)]
+    alternating = [[-128 if (row+col) % 2 else 127 for col in range(4)]
+                   for row in range(4)]
+    cases = [{"A": zero, "B": random_matrix()},
+             {"A": identity, "B": random_matrix()},
+             {"A": random_matrix(), "B": identity},
+             {"A": low, "B": low}, {"A": low, "B": high},
+             {"A": high, "B": high}, {"A": alternating, "B": alternating},
+             {"A": [[-1]*4 for _ in range(4)], "B": [[1]*4 for _ in range(4)]}]
+    while len(cases) < count:
+        cases.append({"A": random_matrix(), "B": random_matrix()})
+    return {"seed": seed, "cases": cases[:count]}
+
+
+def array_sizes(seed=20261105):
+    """Vary dot-product length while keeping every output tile exactly 4x4."""
+    rng = random.Random(seed)
+    cases = []
+    for inner in (1, 1, 2, 3, 4, 5, 7, 8, 16, 31, 64, 128, 256, 1, 1):
+        a = [[rng.randint(-128, 127) for _ in range(inner)] for _ in range(4)]
+        b = [[rng.randint(-128, 127) for _ in range(4)] for _ in range(inner)]
+        if inner == 256:
+            a = [[-128]*inner for _ in range(4)]
+            b = [[-128]*4 for _ in range(inner)]
+        cases.append({"A": a, "B": b})
+    return {"seed": seed, "cases": cases}
+
+
 def pe_step(state, signals, data_w, acc_w):
     """State: accumulator, A-out, B-out, A-valid-out, B-valid-out."""
     rst, clear, en, av, bv, a, b = signals
@@ -125,12 +214,12 @@ def clocked_pe_step(state, signals, data_w, acc_w):
     rst, clear, drain, en, av, bv, a, b = signals
     if rst or clear:
         return ClockedPEState()
-    if drain:
-        return replace(state, result=state.accumulator, result_valid=1)
-    next_state = replace(state, result_valid=0)
+    next_state = replace(state, accumulator=0 if drain else state.accumulator,
+                         result=state.accumulator if drain else state.result,
+                         result_valid=int(bool(drain)))
     if not en:
         return next_state
-    acc = mac(state.accumulator, a, b, data_w, acc_w) if av and bv else state.accumulator
+    acc = mac(next_state.accumulator, a, b, data_w, acc_w) if av and bv else next_state.accumulator
     return replace(next_state, accumulator=acc, a_out=signed(a, data_w),
                    b_out=signed(b, data_w), a_valid_out=av, b_valid_out=bv)
 
@@ -151,11 +240,11 @@ def clocked_pe_vectors(data_w, k_max, acc_w):
         (0, 0, 0, 1, 0, 1, high, low),
         (0, 0, 0, 1, 0, 0, high, high),
         idle,
-        (0, 0, 1, 1, 1, 1, low, low),  # drain wins over a valid enabled MAC
+        (0, 0, 1, 1, 1, 1, low, low),  # publish old sum and start the next tile
         idle,                           # valid clears, result still holds
         (0, 0, 1, 0, 0, 0, 0, 0),
-        (0, 0, 1, 1, 1, 1, high, high),  # consecutive drain preserves S/C
-        (0, 0, 0, 1, 1, 1, -1, 1),     # continue accumulating after drain
+        (0, 0, 1, 1, 1, 1, high, high),  # publish zero and accept a new product
+        (0, 0, 0, 1, 1, 1, -1, 1),     # continue the sum started on drain
         (0, 0, 1, 0, 0, 0, 0, 0),
         (0, 1, 1, 1, 1, 1, low, low),  # clear wins over drain/en
         (1, 1, 1, 1, 1, 1, low, low),  # reset wins over everything
@@ -189,6 +278,20 @@ def clocked_pe_vectors(data_w, k_max, acc_w):
                 signals.append((0, 0, 0, 1, 1, 1, a, b))
             signals += [(0, 0, 1, 0, 1, 1, low, low), idle,
                         (0, 0, 1, 1, 1, 1, high, high), idle]
+    # Exercise every drain/enable/valid combination after a known nonzero sum.
+    for drain in (0, 1):
+        for en in (0, 1):
+            for av in (0, 1):
+                for bv in (0, 1):
+                    signals += [clearing, (0, 0, 0, 1, 1, 1, 1, 1),
+                                (0, 0, drain, en, av, bv, low, high)]
+    # Continuous tiles: every edge accepts a product, including boundary edges.
+    signals.append(clearing)
+    for tile in range(4):
+        for index in range(min(k_max, 4)):
+            signals.append((0, 0, int(tile > 0 and index == 0), 1, 1, 1,
+                            rng.randint(low, high), rng.randint(low, high)))
+    signals.append((0, 0, 1, 0, 0, 0, 0, 0))  # publish the final tile
     if data_w >= 7 and k_max >= 2:
         # F=4 fixed-point example: 1.5*(-2) + 0.5*1 = -2.5; raw result=-640.
         signals += [clearing, (0, 0, 0, 1, 1, 1, 24, -32),
@@ -203,9 +306,9 @@ def clocked_pe_vectors(data_w, k_max, acc_w):
     state, accepted = ClockedPEState(), 0
     for signal in signals:
         rst, clear, drain, en, av, bv, _, _ = signal
-        if rst or clear:
+        if rst or clear or drain:
             accepted = 0
-        elif not drain and en and av and bv:
+        if not rst and not clear and en and av and bv:
             if accepted == k_max:
                 state = clocked_pe_step(state, clearing, data_w, acc_w)
                 yield clearing, state
@@ -333,6 +436,9 @@ def generate_test_vectors():
     (expected / "matrix_example.json").write_text(json.dumps({
         "A": a, "B": b, "C": matrix_multiply(a, b), "DATA_W": 8,
         "K_MAX": 256, "ACC_W": 24}, indent=2) + "\n")
+    write_array_vectors(ROOT / "array_matrices.json",
+                        ROOT / "vectors/systolic_4_4_array.txt",
+                        expected / "array_results.json")
 
 
 if __name__ == "__main__":

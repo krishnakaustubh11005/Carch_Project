@@ -81,15 +81,20 @@ module tb_pe_booth_csa;
                     fail_check("PE differs from integer golden model");
                 end
 
-                // Check the actual S/C representation also holds when no MAC is accepted.
-                if (checks > 1 && !rst && !clear &&
-                    (drain || !en || !a_valid_in || !b_valid_in) &&
+                // Empty boundaries must zero both vectors, not just their sum.
+                if (drain && !rst && !clear && !(en && a_valid_in && b_valid_in) &&
+                    {dut.acc_s, dut.acc_c} !== {2*ACC_W{1'b0}})
+                    fail_check("drain did not clear both carry-save registers");
+
+                // Without reset, clear or drain, an unaccepted MAC holds S/C.
+                if (checks > 1 && !rst && !clear && !drain &&
+                    (!en || !a_valid_in || !b_valid_in) &&
                     {dut.acc_s, dut.acc_c} !== {previous_s, previous_c})
                     fail_check("carry-save state changed without an accepted MAC");
 
                 if (!rst && !clear && drain)
                     drain_count = drain_count + 1;
-                if (!rst && !clear && !drain && en && a_valid_in && b_valid_in)
+                if (!rst && !clear && en && a_valid_in && b_valid_in)
                     mac_count = mac_count + 1;
 
                 previous_s = dut.acc_s; previous_c = dut.acc_c;

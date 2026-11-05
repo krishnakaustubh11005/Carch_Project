@@ -20,6 +20,89 @@ model = verify.model
 
 
 class ArithmeticTests(unittest.TestCase):
+    def test_array_python_export_known_products_and_signed_hex(self):
+        with tempfile.TemporaryDirectory() as directory:
+            vectors = Path(directory) / "array.txt"
+            report = Path(directory) / "results.json"
+            cases = model.write_array_vectors(ROOT / "golden/array_matrices.json", vectors, report)
+            self.assertEqual(cases[0]["C"], [[27, 11, 4, 1], [67, 27, 16, 9],
+                                           [107, 43, 28, 17], [147, 59, 40, 25]])
+            self.assertEqual(cases[1]["C"], [[12, 9, -10, -3], [3, -10, 17, 5],
+                                           [22, -4, -1, -15], [-21, 4, 8, 22]])
+            records = vectors.read_text().splitlines()
+            self.assertEqual(len(records), 66)
+            self.assertEqual(records[0], "4")
+            self.assertEqual(records[34], "ff 02")
+            self.assertEqual(records[52], "fffff6")
+            self.assertEqual(json.loads(report.read_text())["cases"], cases)
+
+    def test_array_python_export_rejects_invalid_matrices(self):
+        original = json.loads((ROOT / "golden/array_matrices.json").read_text())
+        invalid = [{"cases": []}, {"cases": "invalid"}]
+        for bad_value in (128, -129, 1.5, True):
+            case = json.loads(json.dumps(original))
+            case["cases"][0]["A"][0][0] = bad_value
+            invalid.append(case)
+        case = json.loads(json.dumps(original))
+        case["cases"][1]["B"][0].pop()
+        invalid.append(case)
+        for inner in (0, 257):
+            invalid.append({"cases": [{"A": [[0]*inner for _ in range(4)],
+                                       "B": [[0]*4 for _ in range(inner)]}]})
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory) / "matrices.json"
+            for document in invalid:
+                with self.subTest(document=document):
+                    source.write_text(json.dumps(document))
+                    with self.assertRaises(ValueError):
+                        model.write_array_vectors(source, Path(directory) / "array.txt")
+
+    def test_array_python_export_int8_extremes(self):
+        cases = {"cases": [{"A": [[-128]*4 for _ in range(4)],
+                            "B": [[value]*4 for _ in range(4)]}
+                           for value in (-128, 127)]}
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory) / "matrices.json"
+            source.write_text(json.dumps(cases))
+            results = model.write_array_vectors(source, Path(directory) / "array.txt")
+            self.assertEqual(results[0]["C"], [[65536]*4 for _ in range(4)])
+            self.assertEqual(results[1]["C"], [[-65024]*4 for _ in range(4)])
+
+    def test_array_stream_is_reproducible_and_exports_all_cases(self):
+        stream = model.array_stream(20, 123)
+        self.assertEqual(stream, model.array_stream(20, 123))
+        self.assertNotEqual(stream, model.array_stream(20, 124))
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory) / "stream.json"
+            vectors = Path(directory) / "stream.txt"
+            source.write_text(json.dumps(stream))
+            results = model.write_array_vectors(source, vectors)
+            self.assertEqual(len(results), 20)
+            self.assertEqual(len(vectors.read_text().splitlines()), 20*33)
+            self.assertEqual(results[0]["C"], [[0]*4 for _ in range(4)])
+            self.assertEqual(results[1]["C"], results[1]["B"])
+            self.assertEqual(results[2]["C"], results[2]["A"])
+            self.assertEqual(results[3]["C"], [[65536]*4 for _ in range(4)])
+            self.assertEqual(results[4]["C"], [[-65024]*4 for _ in range(4)])
+        for bad_count in (0, -1, True):
+            with self.assertRaises(ValueError):
+                model.array_stream(bad_count)
+
+    def test_array_sizes_export_shapes_and_maximum_k(self):
+        document = model.array_sizes(123)
+        self.assertEqual(document, model.array_sizes(123))
+        sizes = [len(case["B"]) for case in document["cases"]]
+        self.assertEqual(sizes, [1, 1, 2, 3, 4, 5, 7, 8, 16, 31, 64, 128, 256, 1, 1])
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory) / "sizes.json"
+            vectors = Path(directory) / "sizes.txt"
+            source.write_text(json.dumps(document))
+            results = model.write_array_vectors(source, vectors)
+            self.assertTrue(all(len(case["C"]) == 4 and len(case["C"][0]) == 4
+                                for case in results))
+            self.assertEqual(results[12]["C"], [[4194304]*4 for _ in range(4)])
+            self.assertEqual(len(vectors.read_text().splitlines()), sum(1+4*k+16 for k in sizes))
+
     def test_signed_extremes_and_wrap(self):
         self.assertEqual(model.signed(128, 8), -128)
         self.assertEqual(model.signed(255, 8), -1)
@@ -150,13 +233,44 @@ class ArithmeticTests(unittest.TestCase):
         state = model.ClockedPEState(accumulator=42, a_out=3, b_out=-4,
                                     a_valid_out=1, b_valid_out=0, result=5)
         drained = model.clocked_pe_step(state, (0, 0, 1, 1, 1, 1, 127, 127), 8, 24)
-        self.assertEqual(drained, model.ClockedPEState(42, 3, -4, 1, 0, 42, 1))
+        self.assertEqual(drained, model.ClockedPEState(16129, 127, 127, 1, 1, 42, 1))
+        repeated = model.clocked_pe_step(drained, (0, 0, 1, 0, 1, 1, 127, 127), 8, 24)
+        self.assertEqual(repeated, model.ClockedPEState(0, 127, 127, 1, 1, 16129, 1))
         stalled = model.clocked_pe_step(drained, (0, 0, 0, 0, 1, 1, 127, 127), 8, 24)
-        self.assertEqual(stalled, model.ClockedPEState(42, 3, -4, 1, 0, 42, 0))
+        self.assertEqual(stalled, model.ClockedPEState(16129, 127, 127, 1, 1, 42, 0))
         continued = model.clocked_pe_step(stalled, (0, 0, 0, 1, 1, 1, 2, 3), 8, 24)
-        self.assertEqual(continued, model.ClockedPEState(48, 2, 3, 1, 1, 42, 0))
+        self.assertEqual(continued, model.ClockedPEState(16135, 2, 3, 1, 1, 42, 0))
         for signals in ((0, 1, 1, 1, 1, 1, 127, 127), (1, 1, 1, 1, 1, 1, 127, 127)):
             self.assertEqual(model.clocked_pe_step(continued, signals, 8, 24), model.ClockedPEState())
+
+    def test_clocked_pe_drain_enable_valid_truth_table(self):
+        state = model.ClockedPEState(42, 3, -4, 1, 0, 5, 1)
+        for drain in (0, 1):
+            for en in (0, 1):
+                for av in (0, 1):
+                    for bv in (0, 1):
+                        with self.subTest(drain=drain, en=en, av=av, bv=bv):
+                            observed = model.clocked_pe_step(
+                                state, (0, 0, drain, en, av, bv, -2, 3), 8, 24)
+                            base = 0 if drain else 42
+                            self.assertEqual(observed, model.ClockedPEState(
+                                base - 6 if en and av and bv else base,
+                                -2 if en else 3, 3 if en else -4,
+                                av if en else 1, bv if en else 0,
+                                42 if drain else 5, drain))
+
+    def test_clocked_pe_continuous_tiles_have_no_lost_boundary_product(self):
+        state = model.ClockedPEState()
+        # Two two-product tiles: 2*3 + (-4)*5 = -14; (-2)*7 + 3*4 = -2.
+        for signals in ((0, 0, 0, 1, 1, 1, 2, 3),
+                        (0, 0, 0, 1, 1, 1, -4, 5)):
+            state = model.clocked_pe_step(state, signals, 8, 24)
+        state = model.clocked_pe_step(state, (0, 0, 1, 1, 1, 1, -2, 7), 8, 24)
+        self.assertEqual((state.result, state.result_valid, state.accumulator), (-14, 1, -14))
+        state = model.clocked_pe_step(state, (0, 0, 0, 1, 1, 1, 3, 4), 8, 24)
+        self.assertEqual((state.result, state.result_valid, state.accumulator), (-14, 0, -2))
+        state = model.clocked_pe_step(state, (0, 0, 1, 0, 0, 0, 0, 0), 8, 24)
+        self.assertEqual((state.result, state.result_valid, state.accumulator), (-2, 1, 0))
 
     def test_clocked_pe_fixed_point_example(self):
         state = model.ClockedPEState()
@@ -175,7 +289,10 @@ class ArithmeticTests(unittest.TestCase):
                     accepted = 0
                 elif drain:
                     drains += 1
-                elif en and av and bv:
+                    accepted = 0
+                    if not (en and av and bv):
+                        self.assertEqual(state.accumulator, 0)
+                if not rst and not clear and en and av and bv:
                     accepted += 1
                 maximum = max(maximum, accepted)
                 self.assertLessEqual(accepted, k_max)
@@ -364,7 +481,12 @@ class TestbenchSyntaxTests(unittest.TestCase):
         command = ["iverilog", "-g2001", "-i", "-I", str(ROOT / "tb"),
                    "-s", source.stem, "-o", str(binary)]
         arguments, count = [], {"half_adder": 4, "full_adder": 8,
-                                "booth_recoder": 1288}.get(name, 8)
+                                "booth_recoder": 1288,
+                                "systolic_4_4_array": 0}.get(name, 8)
+        if name == "systolic_4_4_array":
+            vectors = directory / "array.txt"
+            model.write_array_vectors(ROOT / "golden/array_matrices.json", vectors)
+            arguments.append(f"+VECTOR_FILE={vectors}")
         if name in verify.DEFAULT_WIDTHS:
             parameter = "DATA_W" if name in ("booth_pp_gen", "booth_mac_datapath", "signed_multiplier", "pe", "pe_booth_csa") else "WIDTH"
             command += [f"-P{source.stem}.{parameter}=2"]
@@ -385,7 +507,7 @@ class TestbenchSyntaxTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         result = subprocess.run(["vvp", str(binary)] + arguments, cwd=directory,
                                 capture_output=True, text=True, timeout=10)
-        if name in ("booth_recoder", "booth_pp_gen", "compressor_tree", "booth_mac_datapath", "signed_multiplier", "pe_booth_csa"):
+        if name in ("booth_recoder", "booth_pp_gen", "compressor_tree", "booth_mac_datapath", "signed_multiplier", "pe_booth_csa", "systolic_4_4_array"):
             # This newer testbench also fails the simulator process itself.
             self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
         else:
@@ -411,6 +533,50 @@ class TestbenchSyntaxTests(unittest.TestCase):
                     with self.subTest(module=module, mode=mode):
                         output = self.simulate_without_dut(ROOT / f"tb/tb_{module}.v", directory, mode)
                         self.assertIn("no test cases executed", output)
+
+    @unittest.skipUnless(shutil.which("iverilog") and shutil.which("vvp"), "simulator not installed")
+    def test_array_checks_python_vectors_and_rejects_bad_files(self):
+        with tempfile.TemporaryDirectory() as directory:
+            directory = Path(directory)
+            (directory / "sim/vcd").mkdir(parents=True)
+            binary = directory / "array.vvp"
+            command = ["iverilog", "-g2001", "-s", "tb_systolic_4_4_array",
+                       "-o", str(binary), str(ROOT / "tb/tb_systolic_4_4_array.v")]
+            command += [str(path) for path in verify.sources(ROOT, "systolic_4_4_array")]
+            result = subprocess.run(command, capture_output=True, text=True, timeout=10)
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            vectors = directory / "array.txt"
+            model.write_array_vectors(ROOT / "golden/array_matrices.json", vectors)
+            original = vectors.read_text()
+            for mode in ("valid", "corrupt_expected", "empty", "truncated", "extra", "unknown", "zero_k", "oversize_k", "missing"):
+                with self.subTest(mode=mode):
+                    content = original
+                    if mode == "corrupt_expected":
+                        content = original.replace("00001b", "00001a", 1)
+                    elif mode == "empty":
+                        content = ""
+                    elif mode == "truncated":
+                        content = "\n".join(original.splitlines()[:-1]) + "\n"
+                    elif mode == "extra":
+                        content += "00 00 000000\n"
+                    elif mode == "unknown":
+                        lines = original.splitlines()
+                        lines[1] = "xx 00"
+                        content = "\n".join(lines) + "\n"
+                    elif mode in ("zero_k", "oversize_k"):
+                        lines = original.splitlines()
+                        lines[0] = "0" if mode == "zero_k" else "257"
+                        content = "\n".join(lines) + "\n"
+                    vectors.write_text(content)
+                    selected_path = directory / "absent.txt" if mode == "missing" else vectors
+                    result = subprocess.run(["vvp", str(binary), f"+VECTOR_FILE={selected_path}"],
+                                            cwd=directory, capture_output=True, text=True, timeout=10)
+                    if mode == "valid":
+                        self.assertTrue(verify.passed(result.returncode, result.stdout), result.stdout)
+                    else:
+                        self.assertNotEqual(result.returncode, 0, result.stdout)
+                        self.assertIn("TEST FAILED", result.stdout)
+                        self.assertNotIn("TEST PASSED", result.stdout)
 
 
 if __name__ == "__main__":
