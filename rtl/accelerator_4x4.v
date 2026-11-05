@@ -16,6 +16,7 @@ module accelerator_4x4 (
     localparam IDLE = 3'd0, CLEAR = 3'd1, FEED = 3'd2,
                DRAIN = 3'd3, COLLECT = 3'd4, DONE = 3'd5;
     reg [2:0] state;
+
     reg [1:0] k;
     reg signed [7:0] a_mem [0:15];
     reg signed [7:0] b_mem [0:15];
@@ -28,7 +29,6 @@ module accelerator_4x4 (
     wire array_en = state == FEED || state == DRAIN || state == COLLECT;
     integer lane;
     integer index;
-
     assign busy = state != IDLE && state != DONE;
     assign result_data = c_mem[result_addr];
 

@@ -14,4 +14,5 @@ module signed_multiplier #(
         .acc_c({PRODUCT_W{1'b0}}), .sum(sum), .carry(carry)
     );
     assign product = sum + carry;
+    
 endmodule

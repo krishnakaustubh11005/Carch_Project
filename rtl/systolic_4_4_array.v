@@ -62,6 +62,7 @@ module systolic_4_4_array (
 
     // Input skew: lane 0 is direct; lane n has n enabled-cycle delays.
     // Data and valid travel in the same shift register, so they cannot separate.
+    
     generate
         for (lane = 0; lane < 4; lane = lane + 1) begin : g_input_skew
             if (lane == 0) begin : g_direct
