@@ -26,6 +26,7 @@ DEPENDENCIES = {
     "signed_multiplier": ("booth_mac_datapath",),
     "pe_booth_csa": ("booth_mac_datapath",),
     "systolic_4_4_array": ("pe_booth_csa",),
+    "accelerator_4x4": ("systolic_4_4_array",),
 }
 # Preserve the short Makefile command without adding a second hardware wrapper.
 # tb_pe.v is the retained, pre-drain interface template and is not an active test.
@@ -98,13 +99,16 @@ def run_case(root, module, width, options):
     command = shlex.split(options.iverilog) + ["-g2001", "-I", str(root / "tb"),
               "-s", top, "-o", str(binary)]
     simulator_args = []
-    if module == "systolic_4_4_array":
+    if module in ("systolic_4_4_array", "accelerator_4x4"):
         matrices_path = Path(getattr(options, "array_matrices", "golden/array_matrices.json"))
         if not matrices_path.is_absolute():
             matrices_path = root / matrices_path
-        vectors = build / "vectors/systolic_4_4_array.txt"
+        vectors = build / "vectors" / f"{module}.txt"
+        result_name = "array_results.json" if module == "systolic_4_4_array" else "accelerator_4x4_results.json"
         cases = model.write_array_vectors(matrices_path, vectors,
-                                          build / "vectors/array_results.json")
+                                          build / "vectors" / result_name)
+        if module == "accelerator_4x4" and any(case["K"] != 4 for case in cases):
+            raise ValueError("accelerator_4x4 requires 4x4 input matrices (K=4)")
         command += [f"-P{top}.MATRIX_COUNT={len(cases)}"]
         simulator_args.append(f"+VECTOR_FILE={vectors}")
         if getattr(options, "array_controls", False):
