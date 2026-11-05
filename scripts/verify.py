@@ -107,6 +107,8 @@ def run_case(root, module, width, options):
                                           build / "vectors/array_results.json")
         command += [f"-P{top}.MATRIX_COUNT={len(cases)}"]
         simulator_args.append(f"+VECTOR_FILE={vectors}")
+        if getattr(options, "array_controls", False):
+            simulator_args.append("+CONTROL_TESTS")
     if width is not None:
         parameter = "DATA_W" if module in ("booth_pp_gen", "booth_mac_datapath", "signed_multiplier", "pe_booth_csa") else "WIDTH"
         command += [f"-P{top}.{parameter}={width}"]
@@ -231,6 +233,8 @@ def main():
     parser.add_argument("--acc-w", type=int)
     parser.add_argument("--rows", type=int, default=7)
     parser.add_argument("--array-matrices", default="golden/array_matrices.json")
+    parser.add_argument("--array-controls", action="store_true",
+                        help="Exercise array stalls, bubbles, and reset/clear recovery")
     parser.add_argument("--verbose", action="store_true")
     parser.add_argument("--timeout", type=float, default=30)
     parser.add_argument("--strict", action="store_true")
