@@ -2,8 +2,9 @@
 
 `accelerator_mmio.v` translates addressed reads/writes into the existing
 `accelerator_4x4` interface. The controller and array are unchanged. This step
-provides a bus-level peripheral; a processor, RAM, address-routing logic, and C
-driver are not connected yet.
+provides the bus-level peripheral. Processor integration and its C driver are
+documented in [the processor guide](../sw/PROCESSOR_ACCELERATOR.md); the
+integration supplies the request-gap adapter described below.
 
 ## Ports and request protocol
 
