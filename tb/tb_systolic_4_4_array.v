@@ -5,7 +5,7 @@
 // A counter of PE(0,0)'s accepted pairs generates drain after K products.
 // The next edge publishes the old sum and may accept the next matrix's product.
 // Invalid inputs after the last matrix allow its final drain and pipeline flush.
-// en stays high; no clear or gap between matrices.
+// Default run is uninterrupted; +CONTROL_TESTS also exercises interruptions.
 // Per-PE publication counters identify overlapping matrix result wavefronts.
 module tb_systolic_4_4_array;
     // Testbench sizing only. The hardware remains a fixed, unparameterized 4x4.
@@ -38,6 +38,49 @@ module tb_systolic_4_4_array;
     integer index;
     integer cycle, checks, errors;
     integer pe00_count, pe00_matrix;
+    integer scenario, scenario_count, stimulus_step, saved_checks;
+    reg checking;
+    reg control_tests;
+
+    // Consume a source step only after any stall/bubble has completed.
+    task pause_source;
+        input integer clocks;
+        begin
+            en = 0;
+            repeat (clocks) @(negedge clk);
+            en = 1;
+        end
+    endtask
+
+    task bubble_source;
+        begin
+            a_valid_in = 0; b_valid_in = 0;
+            @(negedge clk);
+            a_valid_in = 15; b_valid_in = 15;
+        end
+    endtask
+
+    task start_epoch;
+        input integer use_clear;
+        integer n;
+        begin
+            checking = 0;
+            // Assert while stalled too: reset/clear must override en.
+            en = 0;
+            if (use_clear) clear = 1;
+            else rst = 1;
+            @(negedge clk);
+            if (results !== 384'b0 || results_valid !== 16'b0) begin
+                $display("Checks: %0d, errors: %0d", checks, errors + 1);
+                $fatal(1, "TEST FAILED: reset/clear did not zero outputs");
+            end
+            rst = 0; clear = 0; en = 1;
+            a_in = 0; b_in = 0; a_valid_in = 0; b_valid_in = 0;
+            cycle = 0;
+            for (n = 0; n < 16; n = n + 1) received[n] = 0;
+            checking = 1;
+        end
+    endtask
 
     systolic_4_4_array dut (
         .clk(clk), .rst(rst), .clear(clear), .en(en),
@@ -90,7 +133,8 @@ module tb_systolic_4_4_array;
         $dumpvars(1, tb_systolic_4_4_array);
         rst = 1; clear = 0; en = 1;
         a_in = 0; b_in = 0; a_valid_in = 0; b_valid_in = 0;
-        cycle = 0; checks = 0; errors = 0;
+        cycle = 0; checks = 0; errors = 0; checking = 0;
+        control_tests = $test$plusargs("CONTROL_TESTS");
 
         // Python file per case: K, then 4*K A/B byte pairs, then 16 C values.
         // Loading all sizes first lets the counter choose each matrix's K.
@@ -125,11 +169,6 @@ module tb_systolic_4_4_array;
                 end
                 expected[load_index][load_matrix] = loaded_c;
             end
-            // Independent uninterrupted schedule: publish after all prior K steps.
-            if (load_matrix == 0)
-                publish_cycle[load_matrix] = 1 + inner_size[load_matrix];
-            else
-                publish_cycle[load_matrix] = publish_cycle[load_matrix-1] + inner_size[load_matrix];
         end
         for (load_index = 0; load_index < 16; load_index = load_index + 1)
             received[load_index] = 0;
@@ -141,36 +180,61 @@ module tb_systolic_4_4_array;
             $fatal(1);
         end
 
-        // Drive on falling edges so operands are stable before rising edges.
+        // Six independent epochs: continuous, stalls, bubbles, combined,
+        // recovery after clear, and recovery after reset.
+        scenario_count = control_tests ? 6 : 1;
         repeat (2) @(negedge clk);
-        rst = 0;
-        a_valid_in = 4'b1111; b_valid_in = 4'b1111;
-
-        // Stream every matrix immediately after its predecessor.
-        for (matrix_index = 0; matrix_index < MATRIX_COUNT; matrix_index = matrix_index + 1) begin
-            for (k = 0; k < inner_size[matrix_index]; k = k + 1) begin
-                for (row = 0; row < 4; row = row + 1)
-                    a_in[8*row +: 8] = a_matrices[matrix_index][inner_size[matrix_index]*row+k];
-                for (column = 0; column < 4; column = column + 1)
-                    b_in[8*column +: 8] = b_matrices[matrix_index][4*k+column];
-                @(negedge clk);
+        for (scenario = 0; scenario < scenario_count; scenario = scenario + 1) begin
+            start_epoch(0);
+            if (scenario >= 4) begin
+                // Poison the mesh with valid products, leaving work in flight.
+                checking = 0;
+                a_in = 32'h7f7f7f7f; b_in = 32'h80808080;
+                a_valid_in = 15; b_valid_in = 15;
+                repeat (3) @(negedge clk);
+                start_epoch(scenario == 4);
             end
-        end
-
-        // Stop new MAC work. The counter generates the final drain automatically.
-        // Keep en=1 so pending operands and the travelling drain finish moving.
-        a_valid_in = 0; b_valid_in = 0; a_in = 0; b_in = 0;
-        repeat (8) @(negedge clk);
-
-        for (index = 0; index < 16; index = index + 1) begin
-            if (received[index] != MATRIX_COUNT) begin
-                $display("ERROR: PE(%0d,%0d) published %0d results; expected %0d",
-                    index/4, index%4, received[index], MATRIX_COUNT);
+            saved_checks = checks;
+            stimulus_step = 0;
+            for (matrix_index = 0; matrix_index < MATRIX_COUNT; matrix_index = matrix_index + 1) begin
+                for (k = 0; k < inner_size[matrix_index]; k = k + 1) begin
+                    // Pauses also hit tile boundaries and in-flight publications.
+                    if ((scenario == 1 || scenario == 3) && stimulus_step % 3 == 1)
+                        pause_source(3);
+                    if ((scenario == 2 || scenario == 3) && stimulus_step % 2 == 1)
+                        bubble_source;
+                    a_valid_in = 15; b_valid_in = 15;
+                    for (row = 0; row < 4; row = row + 1)
+                        a_in[8*row +: 8] = a_matrices[matrix_index][inner_size[matrix_index]*row+k];
+                    for (column = 0; column < 4; column = column + 1)
+                        b_in[8*column +: 8] = b_matrices[matrix_index][4*k+column];
+                    // Independent expected publication in enabled-step time:
+                    // last product next edge, publication one enabled edge later.
+                    if (k == inner_size[matrix_index]-1)
+                        publish_cycle[matrix_index] = cycle + 2;
+                    @(negedge clk);
+                    stimulus_step = stimulus_step + 1;
+                end
+            end
+            a_valid_in = 0; b_valid_in = 0; a_in = 0; b_in = 0;
+            // Publish at PE(0,0), then stall with the marker inside the mesh.
+            @(negedge clk);
+            if (scenario == 1 || scenario == 3) pause_source(3);
+            // Includes quiet tail to detect duplicate/unexpected publications.
+            repeat (10) @(negedge clk);
+            for (row = 0; row < 16; row = row + 1) begin
+                if (received[row] != MATRIX_COUNT) begin
+                    $display("ERROR: scenario %0d PE %0d received %0d results", scenario, row, received[row]);
+                    errors = errors + 1;
+                end
+            end
+            if (checks - saved_checks != 16*MATRIX_COUNT)
                 errors = errors + 1;
-            end
+            $display("CONTROL scenario=%0d checks=%0d cumulative_errors=%0d",
+                     scenario, checks-saved_checks, errors);
         end
         $display("Checks: %0d, errors: %0d", checks, errors);
-        if (errors != 0 || checks != 16*MATRIX_COUNT) begin
+        if (errors != 0 || checks != scenario_count*16*MATRIX_COUNT) begin
             $display("TEST FAILED");
             $fatal(1);
         end
@@ -183,8 +247,12 @@ module tb_systolic_4_4_array;
     // This is needed because several matrix wavefronts overlap in the array.
     always @(posedge clk) begin
         #1;  // Wait for the PE's nonblocking register updates.
-        if (!rst && !clear) begin
-            cycle = cycle + 1;
+        if (!rst && !clear && checking) begin
+            if (en) cycle = cycle + 1;
+            if (!en && results_valid !== 16'b0) begin
+                $display("ERROR: publication while array stalled");
+                errors = errors + 1;
+            end
             if (^results_valid === 1'bx) begin
                 $display("ERROR: unknown result-valid bits at cycle %0d", cycle);
                 errors = errors + 1;
@@ -218,7 +286,7 @@ module tb_systolic_4_4_array;
     end
 
     initial begin
-        #(10*(256*MATRIX_COUNT+20));
+        #(10*(12*256*MATRIX_COUNT+2000));
         $display("TEST FAILED: timeout");
         $fatal(1);
     end

@@ -22,6 +22,7 @@ ARRAY_RTL = rtl/half_adder.v rtl/full_adder.v rtl/booth_recoder.v \
 
 .PHONY: all test check lint golden golden-array summary wave help clean test-tooling visualize compile-array demo-array wave-array test-array wave-array-matmul sw bench
 .PHONY: test-array-stream wave-array-stream test-array-sizes wave-array-sizes
+.PHONY: test-array-controls wave-array-controls
 all:
 	@$(MAKE) --no-print-directory lint
 	@$(MAKE) --no-print-directory test
@@ -82,6 +83,12 @@ wave-array: demo-array
 test-array: golden-array
 	@$(RUNNER) test --module systolic_4_4_array $(OPTIONS) --verbose
 
+test-array-controls:
+	@$(RUNNER) test --module systolic_4_4_array $(OPTIONS) --array-controls --verbose
+
+wave-array-controls: test-array-controls
+	@$(GTKWAVE) sim/vcd/systolic_4_4_array.vcd
+
 # Generate a continuous stream and check every publication; full transcript in logs.
 test-array-stream:
 	@$(PYTHON) golden/array_stream.py --count "$(STREAM_COUNT)" --seed "$(STREAM_SEED)"
@@ -133,6 +140,8 @@ help:
 	@echo 'make demo-array          Simulate two consecutive input steps; write array_demo.vcd'
 	@echo 'make wave-array          Run the demo and open its waveform in GTKWave'
 	@echo 'make test-array          Run two back-to-back 4x4 matmuls; print 32 results'
+	@echo 'make test-array-controls Check stalls, bubbles, and reset/clear recovery'
+	@echo 'make wave-array-controls Run control checks and open their waveform'
 	@echo 'make test-array-stream   Check STREAM_COUNT=100 matmuls with STREAM_SEED=20261105'
 	@echo 'make wave-array-stream   Check a stream and open GTKWave'
 	@echo 'make test-array-sizes    Check mixed 4xK times Kx4 matrices (K=1 through 256)'
