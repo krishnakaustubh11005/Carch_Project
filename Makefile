@@ -25,6 +25,7 @@ ARRAY_RTL = rtl/half_adder.v rtl/full_adder.v rtl/booth_recoder.v \
 .PHONY: test-array-stream wave-array-stream test-array-sizes wave-array-sizes
 .PHONY: test-array-controls wave-array-controls
 .PHONY: test-accelerator wave-accelerator
+.PHONY: test-mmio wave-mmio
 all:
 	@$(MAKE) --no-print-directory lint
 	@$(MAKE) --no-print-directory test
@@ -91,6 +92,12 @@ test-accelerator:
 wave-accelerator: test-accelerator
 	@$(GTKWAVE) sim/vcd/accelerator_4x4.vcd
 
+test-mmio:
+	@$(RUNNER) test --module accelerator_mmio $(OPTIONS) --array-matrices "$(ACCELERATOR_MATRICES)" --verbose
+
+wave-mmio: test-mmio
+	@$(GTKWAVE) sim/vcd/accelerator_mmio.vcd
+
 test-array-controls:
 	@$(RUNNER) test --module systolic_4_4_array $(OPTIONS) --array-controls --verbose
 
@@ -150,6 +157,8 @@ help:
 	@echo 'make test-array          Run two back-to-back 4x4 matmuls; print 32 results'
 	@echo 'make test-accelerator    Check controller, storage, busy behavior, and reset recovery'
 	@echo 'make wave-accelerator    Run wrapper tests and open their waveform'
+	@echo 'make test-mmio           Check MMIO protocol, register map, and matrix results'
+	@echo 'make wave-mmio           Run MMIO tests and open their waveform'
 	@echo 'make test-array-controls Check stalls, bubbles, and reset/clear recovery'
 	@echo 'make wave-array-controls Run control checks and open their waveform'
 	@echo 'make test-array-stream   Check STREAM_COUNT=100 matmuls with STREAM_SEED=20261105'

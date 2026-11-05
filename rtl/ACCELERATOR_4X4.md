@@ -96,3 +96,7 @@ The generic `make test` also discovers the wrapper test, using ARRAY_MATRICES
 along with the other array tests. The dedicated target selects the eight-case
 wrapper fixture. Strict project checks still report any unrelated pending RTL.
 No FPGA timing/resource measurements are claimed by simulation verification.
+
+For memory-mapped access to this controller, see
+[the MMIO wrapper](ACCELERATOR_MMIO.md). The controller interface above remains
+unchanged; the bus wrapper translates register transactions into its signals.
