@@ -1,5 +1,5 @@
 // Output-stationary, clocked Booth/carry-save processing element.
-// Priority: synchronous reset > clear > drain > enabled forwarding/MAC.
+// Reset/clear override all work; drain publishes the old tile while en advances.
 module pe_booth_csa #(
     parameter DATA_W = 8,
     parameter K_MAX = 256,
@@ -25,6 +25,12 @@ module pe_booth_csa #(
     reg [ACC_W-1:0] acc_c;
     wire [ACC_W-1:0] next_s;
     wire [ACC_W-1:0] next_c;
+    wire [ACC_W-1:0] mac_acc_s;
+    wire [ACC_W-1:0] mac_acc_c;
+
+    // A boundary MAC belongs to the next tile; exclude the previous tile's sum.
+    assign mac_acc_s = drain ? {ACC_W{1'b0}} : acc_s;
+    assign mac_acc_c = drain ? {ACC_W{1'b0}} : acc_c;
 
     booth_mac_datapath #(
         .DATA_W(DATA_W),
@@ -32,8 +38,8 @@ module pe_booth_csa #(
     ) u_mac (
         .a(a_in),
         .b(b_in),
-        .acc_s(acc_s),
-        .acc_c(acc_c),
+        .acc_s(mac_acc_s),
+        .acc_c(mac_acc_c),
         .sum(next_s),
         .carry(next_c)
     );
@@ -54,20 +60,26 @@ module pe_booth_csa #(
             result_valid <= 1'b0;
 
             if (drain) begin
-                // Resolve only for publication; retain S/C and forwarding state.
+                // Publication reads the old registers, independent of this MAC.
                 result <= acc_s + acc_c;
                 result_valid <= 1'b1;
-            end else if (en) begin
-                // Forward the streams independently; consume a pair only if valid.
+            end
+
+            if (en) begin
+                // Forward each stream independently, including boundary cycles.
                 a_out <= a_in;
                 b_out <= b_in;
                 a_valid_out <= a_valid_in;
                 b_valid_out <= b_valid_in;
+            end
 
-                if (a_valid_in && b_valid_in) begin
-                    acc_s <= next_s;
-                    acc_c <= next_c;
-                end
+            if (en && a_valid_in && b_valid_in) begin
+                acc_s <= next_s;
+                acc_c <= next_c;
+            end else if (drain) begin
+                // Without an accepted new pair, leave the next tile empty.
+                acc_s <= {ACC_W{1'b0}};
+                acc_c <= {ACC_W{1'b0}};
             end
         end
     end

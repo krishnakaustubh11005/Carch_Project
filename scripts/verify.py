@@ -25,6 +25,7 @@ DEPENDENCIES = {
     "carry_save_adder": ("full_adder",),
     "signed_multiplier": ("booth_mac_datapath",),
     "pe_booth_csa": ("booth_mac_datapath",),
+    "systolic_4_4_array": ("pe_booth_csa",),
 }
 # Preserve the short Makefile command without adding a second hardware wrapper.
 # tb_pe.v is the retained, pre-drain interface template and is not an active test.
@@ -97,6 +98,15 @@ def run_case(root, module, width, options):
     command = shlex.split(options.iverilog) + ["-g2001", "-I", str(root / "tb"),
               "-s", top, "-o", str(binary)]
     simulator_args = []
+    if module == "systolic_4_4_array":
+        matrices_path = Path(getattr(options, "array_matrices", "golden/array_matrices.json"))
+        if not matrices_path.is_absolute():
+            matrices_path = root / matrices_path
+        vectors = build / "vectors/systolic_4_4_array.txt"
+        cases = model.write_array_vectors(matrices_path, vectors,
+                                          build / "vectors/array_results.json")
+        command += [f"-P{top}.MATRIX_COUNT={len(cases)}"]
+        simulator_args.append(f"+VECTOR_FILE={vectors}")
     if width is not None:
         parameter = "DATA_W" if module in ("booth_pp_gen", "booth_mac_datapath", "signed_multiplier", "pe_booth_csa") else "WIDTH"
         command += [f"-P{top}.{parameter}={width}"]
@@ -127,6 +137,8 @@ def run_case(root, module, width, options):
     if code == 0:
         sim_command = shlex.split(options.vvp) + [str(binary)] + simulator_args
         code, output = execute(sim_command, root, options.timeout)
+        if getattr(options, "verbose", False):
+            print(output.rstrip())
         transcript += "$ " + shlex.join(sim_command) + "\n" + output
         ok = passed(code, output)
         reason = "all checks passed" if ok else f"simulation failed or missing success marker (exit {code})"
@@ -218,6 +230,8 @@ def main():
     parser.add_argument("--k-max", type=int, default=256)
     parser.add_argument("--acc-w", type=int)
     parser.add_argument("--rows", type=int, default=7)
+    parser.add_argument("--array-matrices", default="golden/array_matrices.json")
+    parser.add_argument("--verbose", action="store_true")
     parser.add_argument("--timeout", type=float, default=30)
     parser.add_argument("--strict", action="store_true")
     parser.add_argument("--iverilog", default="iverilog")

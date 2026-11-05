@@ -11,10 +11,17 @@ WIDTHS ?=
 K_MAX ?= 256
 ACC_W ?=
 ROWS ?= 7
+ARRAY_MATRICES ?= golden/array_matrices.json
+STREAM_COUNT ?= 100
+STREAM_SEED ?= 20261105
 RUNNER = $(PYTHON) scripts/verify.py
-OPTIONS = --iverilog "$(IVERILOG)" --vvp "$(VVP)" --timeout "$(TIMEOUT)" --widths "$(WIDTHS)" --rows "$(ROWS)" --k-max "$(K_MAX)" $(if $(ACC_W),--acc-w "$(ACC_W)")
+OPTIONS = --iverilog "$(IVERILOG)" --vvp "$(VVP)" --timeout "$(TIMEOUT)" --widths "$(WIDTHS)" --rows "$(ROWS)" --k-max "$(K_MAX)" --array-matrices "$(ARRAY_MATRICES)" $(if $(ACC_W),--acc-w "$(ACC_W)")
+ARRAY_RTL = rtl/half_adder.v rtl/full_adder.v rtl/booth_recoder.v \
+	rtl/booth_pp_gen.v rtl/compressor_tree.v rtl/booth_mac_datapath.v \
+	rtl/pe_booth_csa.v rtl/systolic_4_4_array.v
 
-.PHONY: all test check lint golden summary wave help clean test-tooling sw bench
+.PHONY: all test check lint golden golden-array summary wave help clean test-tooling visualize compile-array demo-array wave-array test-array wave-array-matmul sw bench
+.PHONY: test-array-stream wave-array-stream test-array-sizes wave-array-sizes
 all:
 	@$(MAKE) --no-print-directory lint
 	@$(MAKE) --no-print-directory test
@@ -35,14 +42,73 @@ lint:
 golden:
 	@$(PYTHON) golden/model.py
 
+golden-array:
+	@$(PYTHON) golden/array_vectors.py --matrices "$(ARRAY_MATRICES)"
+
 summary:
 	@$(RUNNER) summary
 
 wave:
 	@$(RUNNER) wave --module "$(MOD)" --gtkwave "$(GTKWAVE)"
 
+visualize:
+	@YOSYS="$(YOSYS)" $(PYTHON) visualizer/server.py
+
+.PHONY: visualize-setup
+visualize-setup:
+	npm ci --prefix visualizer --no-audit --no-fund
+	$(PYTHON) -m venv visualizer/.venv
+	visualizer/.venv/bin/pip install -r visualizer/requirements.txt
+
 test-tooling:
 	@$(PYTHON) -m unittest discover -s scripts/tests -v
+
+# Syntax/elaboration only; directed functional checks are in test-array.
+compile-array:
+	@mkdir -p sim/build
+	@$(IVERILOG) -g2001 -s systolic_4_4_array -o sim/build/systolic_4_4_array.vvp $(ARRAY_RTL)
+	@echo 'Array compiled; syntax/elaboration only. Run make test-array for the directed test.'
+
+# Two consecutive input steps for waveform inspection; not the full array suite.
+demo-array:
+	@mkdir -p sim/build sim/vcd
+	@$(IVERILOG) -g2001 -s demo_systolic_4_4_array -o sim/build/array_demo.vvp tb/demo_systolic_4_4_array.v $(ARRAY_RTL)
+	@$(VVP) sim/build/array_demo.vvp
+
+wave-array: demo-array
+	@$(GTKWAVE) sim/vcd/array_demo.vcd
+
+# Two complete 4x4 multiplications; print each result as its PE publishes it.
+test-array: golden-array
+	@$(RUNNER) test --module systolic_4_4_array $(OPTIONS) --verbose
+
+# Generate a continuous stream and check every publication; full transcript in logs.
+test-array-stream:
+	@$(PYTHON) golden/array_stream.py --count "$(STREAM_COUNT)" --seed "$(STREAM_SEED)"
+	@$(RUNNER) test --module systolic_4_4_array $(OPTIONS) --array-matrices sim/build/vectors/array_stream_matrices.json
+	@cp sim/build/logs/systolic_4_4_array.log sim/build/logs/array_stream.log
+	@cp sim/build/vectors/array_results.json sim/build/vectors/array_stream_results.json
+	@cp sim/build/vectors/systolic_4_4_array.txt sim/build/vectors/array_stream.txt
+	@cp sim/vcd/systolic_4_4_array.vcd sim/vcd/array_stream.vcd
+	@tail -n 4 sim/build/logs/array_stream.log
+
+wave-array-stream: test-array-stream
+	@$(GTKWAVE) sim/vcd/array_stream.vcd
+
+test-array-sizes:
+	@$(PYTHON) golden/array_sizes.py --seed "$(STREAM_SEED)"
+	@$(RUNNER) test --module systolic_4_4_array $(OPTIONS) --array-matrices sim/build/vectors/array_sizes_matrices.json
+	@cp sim/build/logs/systolic_4_4_array.log sim/build/logs/array_sizes.log
+	@cp sim/build/vectors/array_results.json sim/build/vectors/array_sizes_results.json
+	@cp sim/build/vectors/systolic_4_4_array.txt sim/build/vectors/array_sizes.txt
+	@cp sim/vcd/systolic_4_4_array.vcd sim/vcd/array_sizes.vcd
+	@tail -n 4 sim/build/logs/array_sizes.log
+
+wave-array-sizes: test-array-sizes
+	@$(GTKWAVE) sim/vcd/array_sizes.vcd
+
+wave-array-matmul: test-array
+	@$(GTKWAVE) sim/vcd/systolic_4_4_array.vcd
 
 clean:
 	@$(RUNNER) clean
@@ -63,9 +129,22 @@ help:
 	@echo 'make test-booth_mac_datapath  Verify arbitrary carry-save accumulator inputs'
 	@echo 'make test-pe WIDTHS="4 8" K_MAX=256 ACC_W=24'
 	@echo '  test-pe aliases test-pe_booth_csa (clocked Booth/CSA PE)'
+	@echo 'make compile-array       Compile fixed 4x4 RTL only; full verification pending'
+	@echo 'make demo-array          Simulate two consecutive input steps; write array_demo.vcd'
+	@echo 'make wave-array          Run the demo and open its waveform in GTKWave'
+	@echo 'make test-array          Run two back-to-back 4x4 matmuls; print 32 results'
+	@echo 'make test-array-stream   Check STREAM_COUNT=100 matmuls with STREAM_SEED=20261105'
+	@echo 'make wave-array-stream   Check a stream and open GTKWave'
+	@echo 'make test-array-sizes    Check mixed 4xK times Kx4 matrices (K=1 through 256)'
+	@echo 'make wave-array-sizes    Run mixed-size tests and open GTKWave'
+	@echo 'make golden-array        Calculate Python matrix products and export RTL vectors'
+	@echo '  ARRAY_MATRICES=path.json selects two custom signed INT8 matrix pairs'
+	@echo 'make wave-array-matmul   Run the two-matmul test and open GTKWave'
 	@echo 'make lint / golden       Lint available RTL / generate reference vectors'
 	@echo 'make wave MOD=half_adder  Open a generated VCD (GTKWave required)'
 	@echo 'make summary             Display the most recent test report'
+	@echo 'make visualize           Open the local RTL interface and hierarchy viewer'
+	@echo 'make visualize-setup     Install local ELK layout and portable Yosys dependencies'
 	@echo 'make test-tooling         Verify the runner and Python golden model'
 	@echo 'make clean               Remove generated build, waveform, and vector files'
-	@echo 'Overrides: PYTHON IVERILOG VVP VERILATOR GTKWAVE TIMEOUT WIDTHS ROWS K_MAX ACC_W'
+	@echo 'Overrides: PYTHON IVERILOG VVP VERILATOR GTKWAVE TIMEOUT WIDTHS ROWS K_MAX ACC_W ARRAY_MATRICES'
