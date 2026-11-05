@@ -14,7 +14,11 @@ ROWS ?= 7
 RUNNER = $(PYTHON) scripts/verify.py
 OPTIONS = --iverilog "$(IVERILOG)" --vvp "$(VVP)" --timeout "$(TIMEOUT)" --widths "$(WIDTHS)" --rows "$(ROWS)" --k-max "$(K_MAX)" $(if $(ACC_W),--acc-w "$(ACC_W)")
 
+<<<<<<< HEAD
 .PHONY: all test check lint golden summary wave help clean test-tooling sw bench test-cpu test-golden-c
+=======
+.PHONY: all test check lint golden summary wave help clean test-tooling sw bench
+>>>>>>> main
 all:
 	@$(MAKE) --no-print-directory lint
 	@$(MAKE) --no-print-directory test
@@ -35,12 +39,15 @@ lint:
 golden:
 	@$(PYTHON) golden/model.py
 
+<<<<<<< HEAD
 test-cpu:
 	@$(PYTHON) golden/run_cpu.py
 
 test-golden-c:
 	@$(PYTHON) golden/compare_models.py
 
+=======
+>>>>>>> main
 summary:
 	@$(RUNNER) summary
 
@@ -73,7 +80,10 @@ help:
 	@echo 'make wave MOD=half_adder  Open a generated VCD (GTKWave required)'
 	@echo 'make summary             Display the most recent test report'
 	@echo 'make test-tooling         Verify the runner and Python golden model'
+<<<<<<< HEAD
 	@echo 'make test-cpu             Run C matrix multiplication on PicoRV32 (no accelerator)'
 	@echo 'make test-golden-c        Compare C and Python matrix multiplication on the host'
+=======
+>>>>>>> main
 	@echo 'make clean               Remove generated build, waveform, and vector files'
 	@echo 'Overrides: PYTHON IVERILOG VVP VERILATOR GTKWAVE TIMEOUT WIDTHS ROWS K_MAX ACC_W'
