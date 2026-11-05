@@ -12,6 +12,7 @@ K_MAX ?= 256
 ACC_W ?=
 ROWS ?= 7
 ARRAY_MATRICES ?= golden/array_matrices.json
+ACCELERATOR_MATRICES ?= golden/accelerator_matrices.json
 STREAM_COUNT ?= 100
 STREAM_SEED ?= 20261105
 RUNNER = $(PYTHON) scripts/verify.py
@@ -23,6 +24,7 @@ ARRAY_RTL = rtl/half_adder.v rtl/full_adder.v rtl/booth_recoder.v \
 .PHONY: all test check lint golden golden-array summary wave help clean test-tooling visualize compile-array demo-array wave-array test-array wave-array-matmul sw bench
 .PHONY: test-array-stream wave-array-stream test-array-sizes wave-array-sizes
 .PHONY: test-array-controls wave-array-controls
+.PHONY: test-accelerator wave-accelerator
 all:
 	@$(MAKE) --no-print-directory lint
 	@$(MAKE) --no-print-directory test
@@ -83,6 +85,12 @@ wave-array: demo-array
 test-array: golden-array
 	@$(RUNNER) test --module systolic_4_4_array $(OPTIONS) --verbose
 
+test-accelerator:
+	@$(RUNNER) test --module accelerator_4x4 $(OPTIONS) --array-matrices "$(ACCELERATOR_MATRICES)" --verbose
+
+wave-accelerator: test-accelerator
+	@$(GTKWAVE) sim/vcd/accelerator_4x4.vcd
+
 test-array-controls:
 	@$(RUNNER) test --module systolic_4_4_array $(OPTIONS) --array-controls --verbose
 
@@ -140,6 +148,8 @@ help:
 	@echo 'make demo-array          Simulate two consecutive input steps; write array_demo.vcd'
 	@echo 'make wave-array          Run the demo and open its waveform in GTKWave'
 	@echo 'make test-array          Run two back-to-back 4x4 matmuls; print 32 results'
+	@echo 'make test-accelerator    Check controller, storage, busy behavior, and reset recovery'
+	@echo 'make wave-accelerator    Run wrapper tests and open their waveform'
 	@echo 'make test-array-controls Check stalls, bubbles, and reset/clear recovery'
 	@echo 'make wave-array-controls Run control checks and open their waveform'
 	@echo 'make test-array-stream   Check STREAM_COUNT=100 matmuls with STREAM_SEED=20261105'
