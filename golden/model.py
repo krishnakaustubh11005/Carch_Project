@@ -136,6 +136,72 @@ def array_stream(count=100, seed=20261105):
     return {"seed": seed, "cases": cases[:count]}
 
 
+TILE_SEQUENCER_SEED = 20261119
+# Worked example used in the design discussion (docs/decisions.md D-005..D-007).
+EXAMPLE_6X2 = [[1, 2], [3, 4], [5, 6], [7, 8], [9, 10], [11, 12]]
+EXAMPLE_2X5 = [[1, 0, 2, 1, 3], [0, 1, 1, 2, 1]]
+
+
+def tile_sequencer_cases(seed=TILE_SEQUENCER_SEED, full=False):
+    """Whole M x K x N jobs for tile_sequencer, run back to back by one bench.
+
+    Shapes cover K below, at and above the minimum tile period of 4, a single
+    tile, sizes that are not multiples of 4, all 256 tiles of a 64x64 result,
+    K=63/64, and accumulator extremes. The gate-level Booth array simulates
+    at roughly 100 clocks per second, so the two jobs with about 15k busy
+    clocks each (60x63x61 and the full 64x64x64 scratchpad) run only when
+    full=True (make test-tile-sequencer-full).
+    """
+    rng = random.Random(seed)
+
+    def random_matrix(rows, cols):
+        return [[rng.randint(-128, 127) for _ in range(cols)] for _ in range(rows)]
+
+    shapes = [(4, 1, 4), (1, 1, 1), (5, 3, 7), (8, 4, 8), (3, 7, 2),
+              (13, 16, 9), (17, 5, 33), (64, 1, 64), (5, 63, 6), (12, 64, 8)]
+    if full:
+        shapes += [(60, 63, 61), (64, 64, 64)]
+    cases = [{"A": EXAMPLE_6X2, "B": EXAMPLE_2X5}]
+    for m, k, n in shapes:
+        cases.append({"A": random_matrix(m, k), "B": random_matrix(k, n)})
+    # Largest positive and most negative 64-term sums.
+    cases.append({"A": [[-128]*64 for _ in range(8)], "B": [[-128]*8 for _ in range(64)]})
+    cases.append({"A": [[-128]*64 for _ in range(4)], "B": [[127]*4 for _ in range(64)]})
+    return cases
+
+
+def write_tile_sequencer_vectors(vectors_path, cases=None, max_dim=64, full=False):
+    """Export M x K times K x N jobs and their products for tb_tile_sequencer.
+
+    Per case: decimal 'M K N', then M*K row-major A bytes, K*N row-major B
+    bytes (two hex digits each), then M*N row-major signed 24-bit C values
+    (six hex digits each). Padding to multiples of 4 is the bench's job.
+    """
+    cases = tile_sequencer_cases(full=full) if cases is None else cases
+    records, results = [], []
+    for case in cases:
+        a, b = case["A"], case["B"]
+        m, inner, n = len(a), len(b), len(b[0]) if b else 0
+        if not (1 <= m <= max_dim and 1 <= inner <= max_dim and 1 <= n <= max_dim):
+            raise ValueError(f"M, K and N must be between 1 and {max_dim}")
+        if any(len(row) != inner for row in a) or any(len(row) != n for row in b):
+            raise ValueError("A must be MxK and B must be KxN")
+        for name, matrix in (("A", a), ("B", b)):
+            if any(type(value) is not int or not -128 <= value <= 127
+                   for row in matrix for value in row):
+                raise ValueError(f"{name} entries must be signed INT8 integers")
+        c = matrix_multiply(a, b, data_w=8, k_max=256, acc_w=24)
+        results.append({"M": m, "K": inner, "N": n, "C": c})
+        records.append(f"{m} {inner} {n}\n")
+        records.extend(f"{value & 0xff:02x}\n" for row in a for value in row)
+        records.extend(f"{value & 0xff:02x}\n" for row in b for value in row)
+        records.extend(f"{value & 0xffffff:06x}\n" for row in c for value in row)
+    vectors_path = Path(vectors_path)
+    vectors_path.parent.mkdir(parents=True, exist_ok=True)
+    vectors_path.write_text("".join(records))
+    return results
+
+
 def array_sizes(seed=20261105):
     """Vary dot-product length while keeping every output tile exactly 4x4."""
     rng = random.Random(seed)

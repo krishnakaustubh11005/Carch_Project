@@ -94,6 +94,12 @@ test-array-stream:
 wave-array-stream: test-array-stream
 	@$(GTKWAVE) sim/vcd/array_stream.vcd
 
+# Adds the 60x63x61 and full 64x64x64 jobs; about 15k busy clocks each at
+# roughly 100 simulated clocks per second, hence the longer timeout.
+.PHONY: test-tile-sequencer-full
+test-tile-sequencer-full:
+	@$(RUNNER) test --module tile_sequencer $(OPTIONS) --timeout 900 --tile-full --verbose
+
 test-array-sizes:
 	@$(PYTHON) golden/array_sizes.py --seed "$(STREAM_SEED)"
 	@$(RUNNER) test --module systolic_4_4_array $(OPTIONS) --array-matrices sim/build/vectors/array_sizes_matrices.json --verbose
@@ -134,6 +140,8 @@ help:
 	@echo 'make test-array-stream   Check STREAM_COUNT=100 matmuls with STREAM_SEED=20261105'
 	@echo 'make wave-array-stream   Check a stream and open GTKWave'
 	@echo 'make test-array-sizes    Check mixed 4xK times Kx4 matrices (K=1 through 256)'
+	@echo 'make test-tile_sequencer  Run 11 MxKxN jobs through scratchpads, sequencer and C store'
+	@echo 'make test-tile-sequencer-full  Also run 60x63x61 and 64x64x64 (several minutes)'
 	@echo 'make wave-array-sizes    Run mixed-size tests and open GTKWave'
 	@echo 'make golden-array        Calculate Python matrix products and export RTL vectors'
 	@echo '  ARRAY_MATRICES=path.json selects two custom signed INT8 matrix pairs'
