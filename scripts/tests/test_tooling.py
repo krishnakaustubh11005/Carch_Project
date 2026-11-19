@@ -468,6 +468,9 @@ class TestbenchSyntaxTests(unittest.TestCase):
                         # The scoreboard inspects S/C registers. Include the PE,
                         # but ignore its missing MAC child for this harness check.
                         sources.append(str(ROOT / "rtl/pe_booth_csa.v"))
+                    if source.stem == "tb_fetch_unit":
+                        # The scratchpad scans read scratchpad_a/b memories by name.
+                        sources += [str(ROOT / "rtl/dual_port_ram.v"), str(ROOT / "rtl/scratchpad_a.v"), str(ROOT / "rtl/scratchpad_b.v")]
                     result = subprocess.run(["iverilog", "-g2001", "-i", "-I", str(ROOT / "tb"),
                         "-s", source.stem, "-o", str(Path(directory) / "syntax.vvp")] + sources,
                         text=True, capture_output=True, timeout=10)
@@ -484,7 +487,9 @@ class TestbenchSyntaxTests(unittest.TestCase):
                                 "booth_recoder": 1288,
                                 "systolic_4_4_array": 0,
                                 "scratchpad_a": 1025,
-                                "scratchpad_b": 1025}.get(name, 8)
+                                "scratchpad_b": 1025,
+                                "fetch_unit": 2590 + 2*9*1024,
+                                "dual_port_ram": 7352}.get(name, 8)
         if name == "systolic_4_4_array":
             vectors = directory / "array.txt"
             model.write_array_vectors(ROOT / "golden/array_matrices.json", vectors)
@@ -505,12 +510,15 @@ class TestbenchSyntaxTests(unittest.TestCase):
         if name == "pe_booth_csa":
             # An absent MAC child leaves the PE's next S/C undriven, which must fail.
             sources.append(str(ROOT / "rtl/pe_booth_csa.v"))
+        if name == "fetch_unit":
+            # Only the fetch unit is missing; the scanned scratchpad is real.
+            sources += [str(ROOT / "rtl/dual_port_ram.v"), str(ROOT / "rtl/scratchpad_a.v"), str(ROOT / "rtl/scratchpad_b.v")]
         result = subprocess.run(command + sources, capture_output=True, text=True, timeout=10)
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         result = subprocess.run(["vvp", str(binary)] + arguments, cwd=directory,
                                 capture_output=True, text=True, timeout=10)
         if name in ("booth_recoder", "booth_pp_gen", "compressor_tree", "booth_mac_datapath", "signed_multiplier", "pe_booth_csa", "systolic_4_4_array",
-                    "scratchpad_a", "scratchpad_b"):
+                    "scratchpad_a", "scratchpad_b", "fetch_unit", "dual_port_ram"):
             # This newer testbench also fails the simulator process itself.
             self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
         else:

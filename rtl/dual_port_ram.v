@@ -5,6 +5,9 @@
 //   - Read latency is one clock: rdata shows the word addressed on the
 //     previous rising edge. A write returns the OLD word on the same edge.
 //   - Writing one address from both ports on the same edge is undefined.
+//   - Reading a word on one port while the other port writes it returns the
+//     old word in simulation; FPGA block RAM may not, so do not rely on it.
+//   - en=0 blocks the write and holds rdata.
 module dual_port_ram #(
     parameter ADDR_W = 10,              // 2^10 words = 4 KB
     parameter DATA_W = 32
