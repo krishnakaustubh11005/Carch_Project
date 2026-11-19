@@ -196,9 +196,12 @@ module tb_systolic_4_4_array;
                         $display("ERROR: extra result from PE(%0d,%0d)", index/4, index%4);
                         errors = errors + 1;
                     end else begin
-                        $display("%0t | cycle %0d | matmul %0d | PE(%0d,%0d) | result=%0d expected=%0d",
-                            $time, cycle, received[index]+1, index/4, index%4,
-                            actual[index], expected[index][received[index]]);
+                        $display("%0t | cycle %0d (expected %0d) | matmul %0d | PE(%0d,%0d) | result=%0d expected=%0d | %s",
+                            $time, cycle, publish_cycle[received[index]] + index/4 + index%4,
+                            received[index]+1, index/4, index%4,
+                            actual[index], expected[index][received[index]],
+                            (actual[index] === expected[index][received[index]] &&
+                             cycle == publish_cycle[received[index]] + index/4 + index%4) ? "PASS" : "FAIL");
 
                         if (actual[index] !== expected[index][received[index]]) begin
                             $display("ERROR: result differs from Python golden value");

@@ -15,6 +15,9 @@ module tb_half_adder;
             expected = {1'b0, a} + {1'b0, b};
             #1;
             checks = checks + 1;
+            $display("check %0d: %b + %b | expected {carry,sum}=%b actual=%b%b | %s",
+                checks, a, b, expected, carry, sum,
+                ({carry, sum} === expected) ? "PASS" : "FAIL");
             if ({carry, sum} !== expected)
                 fail_check("truth-table output");
         end

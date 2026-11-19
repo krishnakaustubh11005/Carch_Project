@@ -72,9 +72,11 @@ module demo_systolic_4_4_array;
                     if (seen[index] || $signed(results[24*index +: 24]) !== expected)
                         errors = errors + 1;
                     seen[index] = 1'b1;
-                    $display("t=%0t PE(%0d,%0d): result=%0d expected=%0d",
+                    $display("t=%0t PE(%0d,%0d): %0d*%0d + %0d*%0d | result=%0d expected=%0d | %s",
                         $time, row_index, column_index,
-                        $signed(results[24*index +: 24]), expected);
+                        row_index+1, 10*(column_index+1), row_index+5, 10*(column_index+1)+1,
+                        $signed(results[24*index +: 24]), expected,
+                        ($signed(results[24*index +: 24]) === expected) ? "PASS" : "FAIL");
                 end
             end
         end

@@ -29,6 +29,9 @@ module tb_ripple_carry_adder;
             if (fields == 5) begin
                 #1;
                 checks = checks + 1;
+                $display("check %0d: %h + %h + %b | expected cout=%b sum=%h actual cout=%b sum=%h | %s",
+                    checks, a, b, cin, expected_cout, expected_sum, cout, sum,
+                    (sum === expected_sum && cout === expected_cout) ? "PASS" : "FAIL");
                 if (sum !== expected_sum || cout !== expected_cout)
                     fail_check("golden-vector output");
             end else if (fields != -1) begin

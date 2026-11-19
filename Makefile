@@ -82,27 +82,25 @@ wave-array: demo-array
 test-array: golden-array
 	@$(RUNNER) test --module systolic_4_4_array $(OPTIONS) --verbose
 
-# Generate a continuous stream and check every publication; full transcript in logs.
+# Generate a continuous stream and print every publication; transcript also archived.
 test-array-stream:
 	@$(PYTHON) golden/array_stream.py --count "$(STREAM_COUNT)" --seed "$(STREAM_SEED)"
-	@$(RUNNER) test --module systolic_4_4_array $(OPTIONS) --array-matrices sim/build/vectors/array_stream_matrices.json
+	@$(RUNNER) test --module systolic_4_4_array $(OPTIONS) --array-matrices sim/build/vectors/array_stream_matrices.json --verbose
 	@cp sim/build/logs/systolic_4_4_array.log sim/build/logs/array_stream.log
 	@cp sim/build/vectors/array_results.json sim/build/vectors/array_stream_results.json
 	@cp sim/build/vectors/systolic_4_4_array.txt sim/build/vectors/array_stream.txt
 	@cp sim/vcd/systolic_4_4_array.vcd sim/vcd/array_stream.vcd
-	@tail -n 4 sim/build/logs/array_stream.log
 
 wave-array-stream: test-array-stream
 	@$(GTKWAVE) sim/vcd/array_stream.vcd
 
 test-array-sizes:
 	@$(PYTHON) golden/array_sizes.py --seed "$(STREAM_SEED)"
-	@$(RUNNER) test --module systolic_4_4_array $(OPTIONS) --array-matrices sim/build/vectors/array_sizes_matrices.json
+	@$(RUNNER) test --module systolic_4_4_array $(OPTIONS) --array-matrices sim/build/vectors/array_sizes_matrices.json --verbose
 	@cp sim/build/logs/systolic_4_4_array.log sim/build/logs/array_sizes.log
 	@cp sim/build/vectors/array_results.json sim/build/vectors/array_sizes_results.json
 	@cp sim/build/vectors/systolic_4_4_array.txt sim/build/vectors/array_sizes.txt
 	@cp sim/vcd/systolic_4_4_array.vcd sim/vcd/array_sizes.vcd
-	@tail -n 4 sim/build/logs/array_sizes.log
 
 wave-array-sizes: test-array-sizes
 	@$(GTKWAVE) sim/vcd/array_sizes.vcd

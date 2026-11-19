@@ -70,6 +70,16 @@ module tb_pe_booth_csa;
                 #1;
                 checks = checks + 1;
                 observed_acc = dut.acc_s + dut.acc_c;
+                $display("check %0d: rst/clear/drain/en=%b%b%b%b in a=%0d(v%b) b=%0d(v%b) MAC=%0s | acc expected=%0d actual=%0d | result expected=%0d(v%b) actual=%0d(v%b) | fwd expected a=%0d(v%b) b=%0d(v%b) actual a=%0d(v%b) b=%0d(v%b) | %s",
+                    checks, rst, clear, drain, en, a_in, a_valid_in, b_in, b_valid_in,
+                    (!rst && !clear && en && a_valid_in && b_valid_in) ? "yes" : "no",
+                    $signed(expected_acc), $signed(observed_acc),
+                    $signed(expected_result), expected_result_valid, result, result_valid,
+                    $signed(expected_a), expected_av, $signed(expected_b), expected_bv,
+                    a_out, a_valid_out, b_out, b_valid_out,
+                    ({observed_acc, a_out, b_out, a_valid_out, b_valid_out, result, result_valid} ===
+                     {expected_acc, expected_a, expected_b, expected_av, expected_bv,
+                      expected_result, expected_result_valid}) ? "PASS" : "FAIL");
                 if ({observed_acc, a_out, b_out, a_valid_out, b_valid_out, result, result_valid} !==
                     {expected_acc, expected_a, expected_b, expected_av, expected_bv,
                      expected_result, expected_result_valid}) begin

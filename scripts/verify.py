@@ -26,6 +26,9 @@ DEPENDENCIES = {
     "signed_multiplier": ("booth_mac_datapath",),
     "pe_booth_csa": ("booth_mac_datapath",),
     "systolic_4_4_array": ("pe_booth_csa",),
+    "dual_port_ram": (),
+    "scratchpad_a": ("dual_port_ram",),
+    "scratchpad_b": ("dual_port_ram",),
 }
 # Preserve the short Makefile command without adding a second hardware wrapper.
 # tb_pe.v is the retained, pre-drain interface template and is not an active test.

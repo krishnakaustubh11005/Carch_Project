@@ -15,6 +15,9 @@ module tb_full_adder;
             expected = {1'b0, a} + {1'b0, b} + {1'b0, cin};
             #1;
             checks = checks + 1;
+            $display("check %0d: %b + %b + %b | expected {cout,sum}=%b actual=%b%b | %s",
+                checks, a, b, cin, expected, cout, sum,
+                ({cout, sum} === expected) ? "PASS" : "FAIL");
             if ({cout, sum} !== expected)
                 fail_check("truth-table output");
         end

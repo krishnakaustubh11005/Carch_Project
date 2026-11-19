@@ -26,6 +26,9 @@ module tb_carry_save_adder;
             if (fields == 5) begin
                 #1;
                 checks = checks + 1;
+                $display("check %0d: %h + %h + %h | expected sum=%h carry=%h actual sum=%h carry=%h | %s",
+                    checks, a, b, c, expected_sum, expected_carry, sum, carry,
+                    (sum === expected_sum && carry === expected_carry) ? "PASS" : "FAIL");
                 if (sum !== expected_sum || carry !== expected_carry)
                     fail_check("golden-vector output");
             end else if (fields != -1) begin

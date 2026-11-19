@@ -36,6 +36,9 @@ module tb_compressor_tree;
                 #1;
                 checks = checks + 1;
                 resolved = sum + carry;
+                $display("check %0d: rows=%h | expected row sum=%h actual sum+carry=%h (S=%h C=%h) | %s",
+                    checks, rows, expected, resolved, sum, carry,
+                    (resolved === expected) ? "PASS" : "FAIL");
                 if (resolved !== expected) begin
                     if (errors < 10)
                         $display("rows=%h sum=%h carry=%h expected=%h", rows, sum, carry, expected);

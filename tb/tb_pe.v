@@ -57,6 +57,13 @@ module tb_pe;
                 @(posedge clk);
                 #1;
                 checks = checks + 1;
+                $display("check %0d: rst/clear/en=%b%b%b in a=%0d(v%b) b=%0d(v%b) | expected acc=%0d a=%0d(v%b) b=%0d(v%b) actual acc=%0d a=%0d(v%b) b=%0d(v%b) | %s",
+                    checks, rst, clear, en, a_in, a_valid_in, b_in, b_valid_in,
+                    $signed(expected_acc), $signed(expected_a), expected_av,
+                    $signed(expected_b), expected_bv,
+                    acc_out, a_out, a_valid_out, b_out, b_valid_out,
+                    ({acc_out, a_out, b_out, a_valid_out, b_valid_out} ===
+                     {expected_acc, expected_a, expected_b, expected_av, expected_bv}) ? "PASS" : "FAIL");
                 if ({acc_out, a_out, b_out, a_valid_out, b_valid_out} !==
                     {expected_acc, expected_a, expected_b, expected_av, expected_bv})
                     fail_check("PE state differs from golden model");

@@ -68,6 +68,11 @@ module tb_booth_pp_gen;
                     expected_product = -expected_product;
                 expected_biased_sum = bias + expected_product;
                 biased_sum = {1'b0, pp} + neg;
+                $display("check %0d: x=%0d * digit(s/1/2=%b%b%b) = %0d | expected pp=%h neg=%b bias+product=%h actual pp=%h neg=%b pp+neg=%h | %s",
+                    checks, x, sign, one, two, expected_product,
+                    expected_pp, expected_neg, expected_biased_sum, pp, neg, biased_sum,
+                    (!(one && two) && pp === expected_pp && neg === expected_neg &&
+                     biased_sum === expected_biased_sum) ? "PASS" : "FAIL");
                 if ((one && two) || pp !== expected_pp || neg !== expected_neg ||
                     biased_sum !== expected_biased_sum) begin
                     if (errors < 10)

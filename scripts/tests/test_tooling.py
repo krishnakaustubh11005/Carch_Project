@@ -482,7 +482,9 @@ class TestbenchSyntaxTests(unittest.TestCase):
                    "-s", source.stem, "-o", str(binary)]
         arguments, count = [], {"half_adder": 4, "full_adder": 8,
                                 "booth_recoder": 1288,
-                                "systolic_4_4_array": 0}.get(name, 8)
+                                "systolic_4_4_array": 0,
+                                "scratchpad_a": 1025,
+                                "scratchpad_b": 1025}.get(name, 8)
         if name == "systolic_4_4_array":
             vectors = directory / "array.txt"
             model.write_array_vectors(ROOT / "golden/array_matrices.json", vectors)
@@ -507,7 +509,8 @@ class TestbenchSyntaxTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         result = subprocess.run(["vvp", str(binary)] + arguments, cwd=directory,
                                 capture_output=True, text=True, timeout=10)
-        if name in ("booth_recoder", "booth_pp_gen", "compressor_tree", "booth_mac_datapath", "signed_multiplier", "pe_booth_csa", "systolic_4_4_array"):
+        if name in ("booth_recoder", "booth_pp_gen", "compressor_tree", "booth_mac_datapath", "signed_multiplier", "pe_booth_csa", "systolic_4_4_array",
+                    "scratchpad_a", "scratchpad_b"):
             # This newer testbench also fails the simulator process itself.
             self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
         else:

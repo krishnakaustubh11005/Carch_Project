@@ -27,6 +27,9 @@ module tb_signed_multiplier;
             if (fields == 3) begin
                 #1;
                 checks = checks + 1;
+                $display("check %0d: %0d * %0d | expected=%0d actual=%0d | %s",
+                    checks, a, b, $signed(expected_product), product,
+                    (product === expected_product) ? "PASS" : "FAIL");
                 if (product !== expected_product) begin
                     if (errors < 10)
                         $display("a=%0d b=%0d actual=%h expected=%h", a, b, product, expected_product);

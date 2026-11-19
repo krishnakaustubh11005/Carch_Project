@@ -55,6 +55,12 @@ module tb_booth_recoder;
             set_expected_digit(window);
             #1;
             checks = checks + 1;
+            $display("check %0d: window=%b digit=-2*%b+%b+%b=%0d | expected sign/one/two=%b%b%b actual=%b%b%b | %s",
+                checks, window, window[2], window[1], window[0], expected_digit,
+                expected_sign, expected_one, expected_two,
+                window_sign, window_one, window_two,
+                ({window_sign, window_one, window_two} ===
+                 {expected_sign, expected_one, expected_two}) ? "PASS" : "FAIL");
             if ({window_sign, window_one, window_two} !==
                 {expected_sign, expected_one, expected_two}) begin
                 $display("window=%b expected flags=%b%b%b actual=%b%b%b", window,
@@ -71,10 +77,6 @@ module tb_booth_recoder;
             for (group_index = 0; group_index < 4; group_index = group_index + 1) begin
                 set_expected_digit(operand_with_zero[2*group_index +: 3]);
                 checks = checks + 1;
-                if ({signs[group_index], ones[group_index], twos[group_index]} !==
-                    {expected_sign, expected_one, expected_two})
-                    fail_check("digit flags differ from signed arithmetic oracle");
-
                 decoded_digit = 0;
                 if (ones[group_index])
                     decoded_digit = 1;
@@ -82,10 +84,23 @@ module tb_booth_recoder;
                     decoded_digit = 2;
                 if (signs[group_index])
                     decoded_digit = -decoded_digit;
+                $display("check %0d: y=%b group %0d window=%b | expected digit=%0d actual digit=%0d (flags %b%b%b) | %s",
+                    checks, operand, group_index, operand_with_zero[2*group_index +: 3],
+                    expected_digit, decoded_digit,
+                    signs[group_index], ones[group_index], twos[group_index],
+                    ({signs[group_index], ones[group_index], twos[group_index]} ===
+                     {expected_sign, expected_one, expected_two}) ? "PASS" : "FAIL");
+                if ({signs[group_index], ones[group_index], twos[group_index]} !==
+                    {expected_sign, expected_one, expected_two})
+                    fail_check("digit flags differ from signed arithmetic oracle");
+
                 reconstructed = reconstructed + (decoded_digit << (2*group_index));
             end
             expected_value = value < 128 ? value : value - 256;
             checks = checks + 1;
+            $display("check %0d: y=%b sum(digit_i * 4^i) | expected=%0d actual=%0d | %s",
+                checks, operand, expected_value, reconstructed,
+                (reconstructed === expected_value) ? "PASS" : "FAIL");
             if (reconstructed !== expected_value) begin
                 $display("y=%b expected=%0d reconstructed=%0d", operand,
                     expected_value, reconstructed);

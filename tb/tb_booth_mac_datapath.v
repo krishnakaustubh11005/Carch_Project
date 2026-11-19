@@ -37,6 +37,9 @@ module tb_booth_mac_datapath;
                 checks = checks + 1;
                 // This resolution exists only in the testbench, not the MAC loop.
                 resolved = sum + carry;
+                $display("check %0d: %0d * %0d + (S=%h + C=%h) | expected=%0d actual=%0d (sum=%h carry=%h) | %s",
+                    checks, a, b, acc_s, acc_c, $signed(expected), $signed(resolved), sum, carry,
+                    (resolved === expected) ? "PASS" : "FAIL");
                 if (resolved !== expected) begin
                     if (errors < 10)
                         $display("a=%0d b=%0d S=%h C=%h output=%h expected=%h",
