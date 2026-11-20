@@ -29,13 +29,10 @@ DEPENDENCIES = {
     "dual_port_ram": (),
     "scratchpad_a": ("dual_port_ram",),
     "scratchpad_b": ("dual_port_ram",),
-<<<<<<< Updated upstream
     "fetch_unit": ("scratchpad_a", "scratchpad_b"),   # testbench writes into real scratchpads
-=======
     "c_store": ("dual_port_ram",),
     # The bench drives real memories around the sequencer.
     "tile_sequencer": ("systolic_4_4_array", "scratchpad_a", "scratchpad_b", "c_store"),
->>>>>>> Stashed changes
 }
 # Preserve the short Makefile command without adding a second hardware wrapper.
 # tb_pe.v is the retained, pre-drain interface template and is not an active test.

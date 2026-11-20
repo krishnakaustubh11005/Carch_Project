@@ -488,13 +488,10 @@ class TestbenchSyntaxTests(unittest.TestCase):
                                 "systolic_4_4_array": 0,
                                 "scratchpad_a": 1025,
                                 "scratchpad_b": 1025,
-<<<<<<< Updated upstream
                                 "fetch_unit": 2590 + 2*9*1024,
-                                "dual_port_ram": 7352}.get(name, 8)
-=======
+                                "dual_port_ram": 7352,
                                 "c_store": 4097,
                                 "tile_sequencer": 0}.get(name, 8)
->>>>>>> Stashed changes
         if name == "systolic_4_4_array":
             vectors = directory / "array.txt"
             model.write_array_vectors(ROOT / "golden/array_matrices.json", vectors)
@@ -523,11 +520,7 @@ class TestbenchSyntaxTests(unittest.TestCase):
         result = subprocess.run(["vvp", str(binary)] + arguments, cwd=directory,
                                 capture_output=True, text=True, timeout=10)
         if name in ("booth_recoder", "booth_pp_gen", "compressor_tree", "booth_mac_datapath", "signed_multiplier", "pe_booth_csa", "systolic_4_4_array",
-<<<<<<< Updated upstream
-                    "scratchpad_a", "scratchpad_b", "fetch_unit", "dual_port_ram"):
-=======
-                    "scratchpad_a", "scratchpad_b", "c_store", "tile_sequencer"):
->>>>>>> Stashed changes
+                    "scratchpad_a", "scratchpad_b", "fetch_unit", "dual_port_ram", "c_store", "tile_sequencer"):
             # This newer testbench also fails the simulator process itself.
             self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
         else:
