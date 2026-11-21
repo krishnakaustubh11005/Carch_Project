@@ -13,6 +13,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "golden"))
 import model
+import build_fw
 
 DEPENDENCIES = {
     "half_adder": (),
@@ -38,10 +39,13 @@ DEPENDENCIES = {
     "job_controller": (),
     # Whole accelerator; the bench adds a real 64 KB dual_port_ram.
     "matmul_accel": ("accel_regs", "job_controller", "fetch_unit", "tile_sequencer", "c_copier"),
+    # CPU system: PicoRV32 runs fw/ (built by scripts/build_fw.py) on the real accelerator.
+    "soc_top": ("picorv32", "dual_port_ram", "matmul_accel"),
 }
 # Preserve the short Makefile command without adding a second hardware wrapper.
 # tb_pe.v is the retained, pre-drain interface template and is not an active test.
 TEST_ALIASES = {"pe": "pe_booth_csa"}
+SOC_MIN_TIMEOUT = 300   # seconds, soc_top simulation only
 DEFAULT_WIDTHS = {
     "booth_pp_gen": model.WIDTHS,
     "compressor_tree": (1, 2, 3, 8, 16, 24, 40),
@@ -125,6 +129,20 @@ def run_case(root, module, width, options):
         vectors = build / ("vectors/tile_sequencer_full.txt" if full else "vectors/tile_sequencer.txt")
         model.write_tile_sequencer_vectors(vectors, full=full)
         simulator_args.append(f"+VECTOR_FILE={vectors}")
+    if module == "soc_top":
+        full = getattr(options, "soc_full", False)
+        status, detail = build_fw.build(root, build / ("fw_full" if full else "fw"),
+                                        getattr(options, "riscv_prefix", None), full=full)
+        if status == "missing":
+            return {"module": label, "status": "PENDING", "reason": detail}
+        if status != "ok":
+            log.write_text(f"# {label}: firmware build failed\n" + detail)
+            print(detail.rstrip())
+            return {"module": label, "status": "FAIL", "reason": "firmware build failed",
+                    "log": str(log.relative_to(root))}
+        command += [f'-P{top}.FIRMWARE="{detail}"']
+        if full:
+            command += [f"-P{top}.MAX_CYCLES=20000000"]
     if module == "matmul_accel":
         full = getattr(options, "accel_full", False)
         vectors = build / ("vectors/matmul_accel_full.txt" if full else "vectors/matmul_accel.txt")
@@ -159,7 +177,9 @@ def run_case(root, module, width, options):
     transcript = metadata + "\n$ " + shlex.join(command) + "\n" + output
     if code == 0:
         sim_command = shlex.split(options.vvp) + [str(binary)] + simulator_args
-        code, output = execute(sim_command, root, options.timeout)
+        # The CPU system runs ~0.5M cycles of firmware; give it room on slow machines.
+        timeout = max(options.timeout, SOC_MIN_TIMEOUT) if module == "soc_top" else options.timeout
+        code, output = execute(sim_command, root, timeout)
         if getattr(options, "verbose", False):
             print(output.rstrip())
         transcript += "$ " + shlex.join(sim_command) + "\n" + output
@@ -259,6 +279,9 @@ def main():
                         help="add the 60x63x61 and 64x64x64 tile_sequencer jobs (several minutes)")
     parser.add_argument("--accel-full", action="store_true",
                         help="add the 64x64x64 matmul_accel job (several minutes)")
+    parser.add_argument("--soc-full", action="store_true",
+                        help="add the larger soc_top firmware benchmark jobs (a few minutes)")
+    parser.add_argument("--riscv-prefix", help="RISC-V toolchain prefix for the soc_top firmware")
     parser.add_argument("--timeout", type=float, default=30)
     parser.add_argument("--strict", action="store_true")
     parser.add_argument("--iverilog", default="iverilog")

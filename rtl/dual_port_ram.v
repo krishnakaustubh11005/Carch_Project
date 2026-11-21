@@ -8,9 +8,12 @@
 //   - Reading a word on one port while the other port writes it returns the
 //     old word in simulation; FPGA block RAM may not, so do not rely on it.
 //   - en=0 blocks the write and holds rdata.
+//   - INIT_FILE: optional $readmemh file (one 32-bit word per line) loaded at
+//     time 0; FPGA tools put it into the block RAM. Empty means no init.
 module dual_port_ram #(
     parameter ADDR_W = 10,              // 2^10 words = 4 KB
-    parameter DATA_W = 32
+    parameter DATA_W = 32,
+    parameter INIT_FILE = ""
 ) (
     input  wire clk,
 
@@ -31,6 +34,11 @@ module dual_port_ram #(
     reg [DATA_W-1:0] mem [0:(1<<ADDR_W)-1];
     integer byte_a;
     integer byte_b;
+
+    initial begin
+        if (INIT_FILE != "")
+            $readmemh(INIT_FILE, mem);
+    end
 
     always @(posedge clk) begin
         if (en_a) begin

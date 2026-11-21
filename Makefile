@@ -110,6 +110,13 @@ test-tile-sequencer-full:
 test-accel-full:
 	@$(RUNNER) test --module matmul_accel $(OPTIONS) --timeout 1800 --accel-full --verbose
 
+# PicoRV32 system: build fw/ into sim/build/fw/fw.hex (make test-soc_top runs it).
+.PHONY: fw test-soc-full
+fw:
+	@$(PYTHON) scripts/build_fw.py
+test-soc-full:
+	@$(RUNNER) test --module soc_top $(OPTIONS) --timeout 1800 --soc-full --verbose
+
 test-array-sizes:
 	@$(PYTHON) golden/array_sizes.py --seed "$(STREAM_SEED)"
 	@$(RUNNER) test --module systolic_4_4_array $(OPTIONS) --array-matrices sim/build/vectors/array_sizes_matrices.json --verbose
@@ -154,6 +161,9 @@ help:
 	@echo 'make test-tile-sequencer-full  Also run 60x63x61 and 64x64x64 (several minutes)'
 	@echo 'make test-matmul_accel   Whole jobs through the MMIO registers (Python golden C)'
 	@echo 'make test-accel-full     Also run the 64x64x64 job (several minutes)'
+	@echo 'make fw                  Build the PicoRV32 test firmware (fw/) into sim/build/fw/fw.hex'
+	@echo 'make test-soc_top        Run the firmware on PicoRV32 + accelerator (soc_top)'
+	@echo 'make test-soc-full       Also run larger firmware benchmark jobs (a few minutes)'
 	@echo 'make wave-array-sizes    Run mixed-size tests and open GTKWave'
 	@echo 'make golden-array        Calculate Python matrix products and export RTL vectors'
 	@echo '  ARRAY_MATRICES=path.json selects two custom signed INT8 matrix pairs'

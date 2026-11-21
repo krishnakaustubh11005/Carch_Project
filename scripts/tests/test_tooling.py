@@ -499,6 +499,7 @@ class TestbenchSyntaxTests(unittest.TestCase):
                                 "c_store": 4097,
                                 "c_copier": 11*(7 + 4096) + 3,
                                 "matmul_accel": 0,
+                                "soc_top": 5,
                                 "tile_sequencer": 0}.get(name, 8)
         if name == "systolic_4_4_array":
             vectors = directory / "array.txt"
@@ -534,7 +535,7 @@ class TestbenchSyntaxTests(unittest.TestCase):
         result = subprocess.run(["vvp", str(binary)] + arguments, cwd=directory,
                                 capture_output=True, text=True, timeout=10)
         if name in ("booth_recoder", "booth_pp_gen", "compressor_tree", "booth_mac_datapath", "signed_multiplier", "pe_booth_csa", "systolic_4_4_array",
-                    "scratchpad_a", "scratchpad_b", "fetch_unit", "dual_port_ram", "c_store", "c_copier", "tile_sequencer", "matmul_accel"):
+                    "scratchpad_a", "scratchpad_b", "fetch_unit", "dual_port_ram", "c_store", "c_copier", "tile_sequencer", "matmul_accel", "soc_top"):
             # This newer testbench also fails the simulator process itself.
             self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
         else:
