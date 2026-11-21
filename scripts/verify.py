@@ -31,6 +31,7 @@ DEPENDENCIES = {
     "scratchpad_b": ("dual_port_ram",),
     "fetch_unit": ("scratchpad_a", "scratchpad_b"),   # testbench writes into real scratchpads
     "c_store": ("dual_port_ram",),
+    "c_copier": ("c_store",),   # testbench copies from a real c_store into a real RAM
     # The bench drives real memories around the sequencer.
     "tile_sequencer": ("systolic_4_4_array", "scratchpad_a", "scratchpad_b", "c_store"),
 }
