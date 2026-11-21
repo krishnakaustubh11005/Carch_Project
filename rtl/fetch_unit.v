@@ -64,6 +64,9 @@ module fetch_unit #(
 
     // Write counters: next group starts at M[row][col], col a multiple of 4.
     reg [DIM_W:0] col, row;
+    // Always cols_r - col. Kept in a register so this cycle's group size and
+    // the look-ahead below need no subtraction from cols_r (timing).
+    reg [DIM_W:0] remaining;
 
     // Word range of the matrix, used only on start.
     wire [2*DIM_W+1:0] total_bytes = rows * cols;
@@ -72,10 +75,9 @@ module fetch_unit #(
         last_byte[BYTE_W-1:2] - base_addr[BYTE_W-1:2] + 1'b1;
 
     // This cycle's group.
-    wire [DIM_W:0] remaining = cols_r - col;
     wire [2:0] g = (remaining >= 4) ? 3'd4 : remaining[2:0];
     wire emit = busy && (count >= g);
-    wire row_end = emit && (col + g == cols_r);
+    wire row_end = emit && (remaining == {{(DIM_W-2){1'b0}}, g});
     wire last_group = row_end && (row + 1'b1 == rows_r);
 
     assign wr_en = emit;
@@ -102,7 +104,9 @@ module fetch_unit #(
     wire [DIM_W:0] row_n = row_end ? row + 1'b1 : row;
 
     // Look-ahead: the group that will leave next cycle, before the new word lands.
-    wire [DIM_W:0] remaining_n = cols_r - col_n;
+    // remaining_n = cols_r - col_n, derived from the remaining register.
+    wire [DIM_W:0] remaining_n = !emit ? remaining
+                               : (row_end ? cols_r : remaining - {{(DIM_W-2){1'b0}}, g});
     wire [2:0] g_n = (remaining_n >= 4) ? 3'd4 : remaining_n[2:0];
     wire [4:0] leaves_n = (count_n >= g_n) ? {2'b00, g_n} : 5'd0;
 
@@ -120,6 +124,7 @@ module fetch_unit #(
             count <= 4'd0;
             col <= 0;
             row <= 0;
+            remaining <= 0;
             words_left <= 0;
         end else if (start && !busy) begin
             busy <= 1'b1;
@@ -135,6 +140,7 @@ module fetch_unit #(
             count <= 4'd0;
             col <= 0;
             row <= 0;
+            remaining <= cols;
         end else begin
             done <= 1'b0;
             if (busy) begin
@@ -142,6 +148,7 @@ module fetch_unit #(
                 count <= count_n;
                 col <= col_n;
                 row <= row_n;
+                remaining <= remaining_n;
                 rdata_valid <= ram_en;
                 if (rdata_valid)
                     first_pending <= 1'b0;
