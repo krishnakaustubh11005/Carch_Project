@@ -56,6 +56,26 @@ wave:
 view-accel:
 	@xdg-open visualizer/accelerator.html >/dev/null 2>&1 || echo "Open visualizer/accelerator.html in a browser"
 
+# CPU-side viewer: replays a recorded soc_top trace (visualizer/cpu/trace.js).
+.PHONY: view-cpu cpu-trace
+view-cpu:
+	@xdg-open visualizer/cpu.html >/dev/null 2>&1 || echo "Open visualizer/cpu.html in a browser"
+
+# Re-record that trace after changing the RTL, fw/ headers or visualizer/cpu/demo.c.
+cpu-trace:
+	@$(PYTHON) scripts/cpu_trace.py --iverilog "$(IVERILOG)" --vvp "$(VVP)"
+
+# FPGA (fpga/README.md): rebuild the demo firmware image / check fpga_top with Icarus.
+.PHONY: fpga-fw fpga-rtl-sim
+fpga-fw:
+	@$(PYTHON) fpga/build_fw.py
+fpga-rtl-sim:
+	@mkdir -p sim/build/fpga
+	@printf '`define FPGA_FIRMWARE "%s"\n' "$(CURDIR)/fpga/fw/fpga_demo.hex" > sim/build/fpga/fw_path.vh
+	@$(IVERILOG) -g2005 -I sim/build/fpga -s tb_fpga_top -o sim/build/fpga/rtl.vvp \
+		fpga/tb_fpga_top.v fpga/fpga_top.v fpga/uart_result_bridge.v fpga/sim_stubs/unisim_stubs.v rtl/*.v
+	@$(VVP) -n sim/build/fpga/rtl.vvp
+
 visualize:
 	@YOSYS="$(YOSYS)" $(PYTHON) visualizer/server.py
 
@@ -178,7 +198,11 @@ help:
 	@echo 'make summary             Display the most recent test report'
 	@echo 'make visualize           Open the local RTL interface and hierarchy viewer'
 	@echo 'make view-accel          Open the accelerator block-diagram viewer in a browser'
+	@echo 'make view-cpu            Open the CPU bus viewer (PicoRV32 + soc_top, cycle trace)'
+	@echo 'make cpu-trace           Re-record the CPU viewer trace (needs the RISC-V toolchain)'
 	@echo 'make visualize-setup     Install local ELK layout and portable Yosys dependencies'
+	@echo 'make fpga-rtl-sim        Run fpga_top (PYNQ-Z2 wrapper) in Icarus; prints the matrices'
+	@echo 'make fpga-fw             Rebuild fpga/fw/fpga_demo.hex (needs the RISC-V toolchain)'
 	@echo 'make synth               Synthesize each block for Xilinx 7-series (Yosys)'
 	@echo 'make test-tooling         Verify the runner and Python golden model'
 	@echo 'make clean               Remove generated build, waveform, and vector files'
