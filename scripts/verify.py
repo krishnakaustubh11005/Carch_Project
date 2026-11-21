@@ -34,6 +34,10 @@ DEPENDENCIES = {
     "c_copier": ("c_store",),   # testbench copies from a real c_store into a real RAM
     # The bench drives real memories around the sequencer.
     "tile_sequencer": ("systolic_4_4_array", "scratchpad_a", "scratchpad_b", "c_store"),
+    "accel_regs": (),
+    "job_controller": (),
+    # Whole accelerator; the bench adds a real 64 KB dual_port_ram.
+    "matmul_accel": ("accel_regs", "job_controller", "fetch_unit", "tile_sequencer", "c_copier"),
 }
 # Preserve the short Makefile command without adding a second hardware wrapper.
 # tb_pe.v is the retained, pre-drain interface template and is not an active test.
@@ -120,6 +124,11 @@ def run_case(root, module, width, options):
         # Separate files so a default run can't rewrite a full run's input.
         vectors = build / ("vectors/tile_sequencer_full.txt" if full else "vectors/tile_sequencer.txt")
         model.write_tile_sequencer_vectors(vectors, full=full)
+        simulator_args.append(f"+VECTOR_FILE={vectors}")
+    if module == "matmul_accel":
+        full = getattr(options, "accel_full", False)
+        vectors = build / ("vectors/matmul_accel_full.txt" if full else "vectors/matmul_accel.txt")
+        model.write_accel_vectors(vectors, full=full)
         simulator_args.append(f"+VECTOR_FILE={vectors}")
     if width is not None:
         parameter = "DATA_W" if module in ("booth_pp_gen", "booth_mac_datapath", "signed_multiplier", "pe_booth_csa") else "WIDTH"
@@ -248,6 +257,8 @@ def main():
     parser.add_argument("--verbose", action="store_true")
     parser.add_argument("--tile-full", action="store_true",
                         help="add the 60x63x61 and 64x64x64 tile_sequencer jobs (several minutes)")
+    parser.add_argument("--accel-full", action="store_true",
+                        help="add the 64x64x64 matmul_accel job (several minutes)")
     parser.add_argument("--timeout", type=float, default=30)
     parser.add_argument("--strict", action="store_true")
     parser.add_argument("--iverilog", default="iverilog")

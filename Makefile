@@ -100,6 +100,11 @@ wave-array-stream: test-array-stream
 test-tile-sequencer-full:
 	@$(RUNNER) test --module tile_sequencer $(OPTIONS) --timeout 900 --tile-full --verbose
 
+# Adds the 64x64x64 whole job to the matmul_accel bench (several minutes).
+.PHONY: test-accel-full
+test-accel-full:
+	@$(RUNNER) test --module matmul_accel $(OPTIONS) --timeout 1800 --accel-full --verbose
+
 test-array-sizes:
 	@$(PYTHON) golden/array_sizes.py --seed "$(STREAM_SEED)"
 	@$(RUNNER) test --module systolic_4_4_array $(OPTIONS) --array-matrices sim/build/vectors/array_sizes_matrices.json --verbose
@@ -142,6 +147,8 @@ help:
 	@echo 'make test-array-sizes    Check mixed 4xK times Kx4 matrices (K=1 through 256)'
 	@echo 'make test-tile_sequencer  Run 11 MxKxN jobs through scratchpads, sequencer and C store'
 	@echo 'make test-tile-sequencer-full  Also run 60x63x61 and 64x64x64 (several minutes)'
+	@echo 'make test-matmul_accel   Whole jobs through the MMIO registers (Python golden C)'
+	@echo 'make test-accel-full     Also run the 64x64x64 job (several minutes)'
 	@echo 'make wave-array-sizes    Run mixed-size tests and open GTKWave'
 	@echo 'make golden-array        Calculate Python matrix products and export RTL vectors'
 	@echo '  ARRAY_MATRICES=path.json selects two custom signed INT8 matrix pairs'

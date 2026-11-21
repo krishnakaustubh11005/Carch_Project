@@ -202,6 +202,73 @@ def write_tile_sequencer_vectors(vectors_path, cases=None, max_dim=64, full=Fals
     return results
 
 
+ACCEL_SEED = 20261120
+ACCEL_RAM_BYTES = 64 * 1024
+
+
+def accel_cases(seed=ACCEL_SEED, full=False):
+    """Whole jobs for tb_matmul_accel: matrices plus RAM byte addresses.
+
+    RAM layout (64 KB): A in 0x0000-0x3FFF, B in 0x4000-0x7FFF, C in
+    0x8000-0xFFFF, so jobs use addresses on both sides of 0x8000. A_ADDR and B_ADDR take any alignment; C_ADDR is a
+    multiple of 4. full=True adds the 64x64x64 job (make test-accel-full).
+    """
+    rng = random.Random(seed)
+
+    def random_matrix(rows, cols):
+        return [[rng.randint(-128, 127) for _ in range(cols)] for _ in range(rows)]
+
+    shapes = [(1, 1, 1), (4, 4, 4), (5, 3, 7), (3, 7, 2), (13, 16, 9),
+              (17, 5, 33), (64, 1, 64), (5, 63, 6), (2, 64, 64)]
+    if full:
+        shapes.append((64, 64, 64))
+    jobs = [(EXAMPLE_6X2, EXAMPLE_2X5)]
+    jobs += [(random_matrix(m, k), random_matrix(k, n)) for m, k, n in shapes]
+    # Largest positive and most negative 64-term sums.
+    jobs.append(([[-128]*64 for _ in range(8)], [[-128]*8 for _ in range(64)]))
+    jobs.append(([[-128]*64 for _ in range(4)], [[127]*5 for _ in range(64)]))
+
+    cases = []
+    for a, b in jobs:
+        m, k, n = len(a), len(b), len(b[0])
+        a_addr = rng.randint(0, 0x4000 - m*k)
+        b_addr = 0x4000 + rng.randint(0, 0x4000 - k*n)
+        c_addr = 0x8000 + 4*rng.randint(0, (0x8000 - 4*m*n) // 4)
+        cases.append({"A": a, "B": b, "A_ADDR": a_addr, "B_ADDR": b_addr, "C_ADDR": c_addr})
+    return cases
+
+
+def write_accel_vectors(vectors_path, cases=None, full=False):
+    """Export whole jobs and expected C for tb_matmul_accel.
+
+    Per case: 'M K N A_ADDR B_ADDR C_ADDR' (decimal sizes, hex addresses),
+    then M*K A bytes and K*N B bytes (two hex digits, row-major), then M*N C
+    words as the RAM must hold them (eight hex digits, 24-bit result
+    sign-extended to 32 bits).
+    """
+    cases = accel_cases(full=full) if cases is None else cases
+    records = []
+    for case in cases:
+        a, b = case["A"], case["B"]
+        m, k, n = len(a), len(b), len(b[0])
+        if not (1 <= m <= 64 and 1 <= k <= 64 and 1 <= n <= 64):
+            raise ValueError("M, K and N must be between 1 and 64")
+        if any(len(row) != k for row in a) or any(len(row) != n for row in b):
+            raise ValueError("A must be MxK and B must be KxN")
+        if (case["A_ADDR"] + m*k > ACCEL_RAM_BYTES or case["B_ADDR"] + k*n > ACCEL_RAM_BYTES
+                or case["C_ADDR"] % 4 or case["C_ADDR"] + 4*m*n > ACCEL_RAM_BYTES):
+            raise ValueError("job does not fit the 64 KB RAM or C_ADDR is unaligned")
+        c = matrix_multiply(a, b, data_w=8, k_max=256, acc_w=24)
+        records.append(f"{m} {k} {n} {case['A_ADDR']:x} {case['B_ADDR']:x} {case['C_ADDR']:x}\n")
+        records.extend(f"{value & 0xff:02x}\n" for row in a for value in row)
+        records.extend(f"{value & 0xff:02x}\n" for row in b for value in row)
+        records.extend(f"{value & 0xffffffff:08x}\n" for row in c for value in row)
+    vectors_path = Path(vectors_path)
+    vectors_path.parent.mkdir(parents=True, exist_ok=True)
+    vectors_path.write_text("".join(records))
+    return cases
+
+
 def array_sizes(seed=20261105):
     """Vary dot-product length while keeping every output tile exactly 4x4."""
     rng = random.Random(seed)

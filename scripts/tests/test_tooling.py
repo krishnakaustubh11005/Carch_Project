@@ -471,6 +471,9 @@ class TestbenchSyntaxTests(unittest.TestCase):
                     if source.stem == "tb_fetch_unit":
                         # The scratchpad scans read scratchpad_a/b memories by name.
                         sources += [str(ROOT / "rtl/dual_port_ram.v"), str(ROOT / "rtl/scratchpad_a.v"), str(ROOT / "rtl/scratchpad_b.v")]
+                    if source.stem == "tb_matmul_accel":
+                        # The bench places data in the RAM by name.
+                        sources.append(str(ROOT / "rtl/dual_port_ram.v"))
                     if source.stem == "tb_c_copier":
                         # The bench fills c_store and scans the RAM by name.
                         sources += [str(ROOT / "rtl/dual_port_ram.v"), str(ROOT / "rtl/c_store.v")]
@@ -495,6 +498,7 @@ class TestbenchSyntaxTests(unittest.TestCase):
                                 "dual_port_ram": 7352,
                                 "c_store": 4097,
                                 "c_copier": 11*(7 + 4096) + 3,
+                                "matmul_accel": 0,
                                 "tile_sequencer": 0}.get(name, 8)
         if name == "systolic_4_4_array":
             vectors = directory / "array.txt"
@@ -519,6 +523,9 @@ class TestbenchSyntaxTests(unittest.TestCase):
         if name == "fetch_unit":
             # Only the fetch unit is missing; the scanned scratchpad is real.
             sources += [str(ROOT / "rtl/dual_port_ram.v"), str(ROOT / "rtl/scratchpad_a.v"), str(ROOT / "rtl/scratchpad_b.v")]
+        if name == "matmul_accel":
+            # Only the accelerator is missing; the RAM is real.
+            sources.append(str(ROOT / "rtl/dual_port_ram.v"))
         if name == "c_copier":
             # Only the copier is missing; c_store and the RAM are real.
             sources += [str(ROOT / "rtl/dual_port_ram.v"), str(ROOT / "rtl/c_store.v")]
@@ -527,7 +534,7 @@ class TestbenchSyntaxTests(unittest.TestCase):
         result = subprocess.run(["vvp", str(binary)] + arguments, cwd=directory,
                                 capture_output=True, text=True, timeout=10)
         if name in ("booth_recoder", "booth_pp_gen", "compressor_tree", "booth_mac_datapath", "signed_multiplier", "pe_booth_csa", "systolic_4_4_array",
-                    "scratchpad_a", "scratchpad_b", "fetch_unit", "dual_port_ram", "c_store", "c_copier", "tile_sequencer"):
+                    "scratchpad_a", "scratchpad_b", "fetch_unit", "dual_port_ram", "c_store", "c_copier", "tile_sequencer", "matmul_accel"):
             # This newer testbench also fails the simulator process itself.
             self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
         else:
