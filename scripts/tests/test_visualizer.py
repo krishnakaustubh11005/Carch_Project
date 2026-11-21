@@ -2,6 +2,7 @@
 
 import os
 import shutil
+import subprocess
 import threading
 import unittest
 from unittest.mock import patch
@@ -148,7 +149,22 @@ class ApiTests(unittest.TestCase):
 TOOL = os.environ.get("YOSYS") or shutil.which("yosys") or shutil.which("yowasp-yosys")
 
 
+def _supports_proc_noopt(tool):
+    """The visualizer runs 'proc -noopt', which older Yosys (e.g. 0.9) lacks."""
+    try:
+        result = subprocess.run([tool, "-h", "proc"], capture_output=True,
+                                text=True, timeout=30)
+    except (OSError, subprocess.SubprocessError):
+        return False
+    return "-noopt" in result.stdout
+
+
+TOOL_USABLE = bool(TOOL) and _supports_proc_noopt(TOOL)
+
+
 @unittest.skipUnless(TOOL, "Yosys not installed; set YOSYS to run elaboration integration checks")
+@unittest.skipUnless(TOOL_USABLE, "Yosys too old for the visualizer (no 'proc -noopt'); "
+                                  "set YOSYS to a newer one to run elaboration checks")
 class ElaborationTests(unittest.TestCase):
     def test_real_full_adder_matches_rtl(self):
         graph = build("full_adder", executable=TOOL)

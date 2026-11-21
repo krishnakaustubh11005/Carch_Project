@@ -20,7 +20,7 @@ ARRAY_RTL = rtl/half_adder.v rtl/full_adder.v rtl/booth_recoder.v \
 	rtl/booth_pp_gen.v rtl/compressor_tree.v rtl/booth_mac_datapath.v \
 	rtl/pe_booth_csa.v rtl/systolic_4_4_array.v
 
-.PHONY: all test check lint golden golden-array summary wave help clean test-tooling visualize compile-array demo-array wave-array test-array wave-array-matmul sw bench
+.PHONY: all test check lint golden golden-array summary wave help clean test-tooling synth visualize compile-array demo-array wave-array test-array wave-array-matmul sw bench
 .PHONY: test-array-stream wave-array-stream test-array-sizes wave-array-sizes
 all:
 	@$(MAKE) --no-print-directory lint
@@ -59,6 +59,11 @@ visualize-setup:
 	npm ci --prefix visualizer --no-audit --no-fund
 	$(PYTHON) -m venv visualizer/.venv
 	visualizer/.venv/bin/pip install -r visualizer/requirements.txt
+
+# FPGA check: Yosys synth_xilinx on each block; fails on latches, missing
+# block RAM, or memories built from flip-flops. Set YOSYS to override the tool.
+synth:
+	@$(PYTHON) scripts/synth.py $(if $(YOSYS),--yosys "$(YOSYS)")
 
 test-tooling:
 	@$(PYTHON) -m unittest discover -s scripts/tests -v
@@ -158,6 +163,7 @@ help:
 	@echo 'make summary             Display the most recent test report'
 	@echo 'make visualize           Open the local RTL interface and hierarchy viewer'
 	@echo 'make visualize-setup     Install local ELK layout and portable Yosys dependencies'
+	@echo 'make synth               Synthesize each block for Xilinx 7-series (Yosys)'
 	@echo 'make test-tooling         Verify the runner and Python golden model'
 	@echo 'make clean               Remove generated build, waveform, and vector files'
 	@echo 'Overrides: PYTHON IVERILOG VVP VERILATOR GTKWAVE TIMEOUT WIDTHS ROWS K_MAX ACC_W ARRAY_MATRICES'
