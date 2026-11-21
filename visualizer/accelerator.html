@@ -1,0 +1,858 @@
+<!doctype html>
+<!-- Carch matmul accelerator visualizer. Self-contained: open this file in a
+     browser (make view-accel). Cycle counts follow the RTL; see
+     docs/ACCELERATOR_PLAN.md. Fonts load from Google Fonts when online and
+     fall back to system fonts offline. -->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Carch Matmul Accelerator</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans+Condensed:wght@500;600;700&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+<style>
+/* Layout: schematic sheet. Left = CPU console (what the user writes), right = the
+   accelerator's block diagram, below = live state of every memory. Three wire colours:
+   data path, control path, CPU bus. */
+:root{
+  --bg:#eef1f4; --sheet:#fbfcfd; --panel:#ffffff; --ink:#17212c; --muted:#5a6876; --line:#c5ced8; --grid:#e3e8ee;
+  --data:#0b7a87; --data-soft:#d5eef1; --ctrl:#b8640c; --ctrl-soft:#f6e6d3; --bus:#6346c4; --bus-soft:#e6e0f7;
+  --ok:#2c7a4b; --err:#b8322a; --pad:#9aa6b3; --stale:#d9dee4;
+  --a:#3a6fd8; --b:#c2417e; --c:#1f8a5b;
+  --f-head:"IBM Plex Sans Condensed","Arial Narrow",system-ui,sans-serif;
+  --f-body:"IBM Plex Sans",system-ui,-apple-system,"Segoe UI",sans-serif;
+  --f-mono:"IBM Plex Mono",ui-monospace,"SFMono-Regular",Menlo,Consolas,monospace;
+}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
+  --bg:#0c1117; --sheet:#111821; --panel:#151e28; --ink:#e2e9f0; --muted:#8a99a9; --line:#2b3746; --grid:#1c2632;
+  --data:#38c3d1; --data-soft:#123238; --ctrl:#f0a24a; --ctrl-soft:#3a2a17; --bus:#a891ff; --bus-soft:#272044;
+  --ok:#55c486; --err:#f0776d; --pad:#5d6b7a; --stale:#25303c;
+  --a:#79a2ff; --b:#f07bb3; --c:#4fd18f; color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#0c1117; --sheet:#111821; --panel:#151e28; --ink:#e2e9f0; --muted:#8a99a9; --line:#2b3746; --grid:#1c2632;
+  --data:#38c3d1; --data-soft:#123238; --ctrl:#f0a24a; --ctrl-soft:#3a2a17; --bus:#a891ff; --bus-soft:#272044;
+  --ok:#55c486; --err:#f0776d; --pad:#5d6b7a; --stale:#25303c;
+  --a:#79a2ff; --b:#f07bb3; --c:#4fd18f; color-scheme:dark}
+*{box-sizing:border-box}
+body{background:var(--bg);color:var(--ink);font-family:var(--f-body);font-size:14px;line-height:1.45;
+  padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));padding-block:20px 40px}
+h1,h2,h3{font-family:var(--f-head);margin:0;text-wrap:balance}
+h1{font-size:26px;font-weight:700;letter-spacing:.01em}
+h2{font-size:15px;font-weight:600;text-transform:uppercase;letter-spacing:.08em;color:var(--muted)}
+.wrap{max-width:1500px;margin:0 auto;display:flex;flex-direction:column;gap:16px}
+.wrap>*{min-width:0}
+.top>*{min-width:0}
+header{display:flex;flex-wrap:wrap;align-items:end;justify-content:space-between;gap:12px}
+header p{margin:4px 0 0;color:var(--muted);max-width:70ch}
+.legend{display:flex;gap:14px;flex-wrap:wrap;font-size:12px;color:var(--muted)}
+.legend span{display:inline-flex;align-items:center;gap:6px}
+.legend i{display:inline-block;width:26px;height:0;border-top:3px solid}
+.lg-data{border-color:var(--data)!important}.lg-ctrl{border-color:var(--ctrl)!important;border-top-style:dashed!important}.lg-bus{border-color:var(--bus)!important}
+.top{display:grid;grid-template-columns:minmax(300px,360px) minmax(0,1fr);gap:16px;align-items:start}
+@media (max-width:980px){.top{grid-template-columns:minmax(0,1fr)}}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:6px;padding:14px;min-width:0}
+.card h2{margin-bottom:10px}
+/* console */
+.console{display:flex;flex-direction:column;gap:12px}
+.regs{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}
+.field{display:flex;flex-direction:column;gap:3px;min-width:0}
+.field label{font-family:var(--f-mono);font-size:11px;color:var(--muted)}
+.field input,.field select{font-family:var(--f-mono);font-size:13px;padding:6px 7px;border:1px solid var(--line);border-radius:4px;background:var(--sheet);color:var(--ink);width:100%;min-width:0}
+.field input:focus-visible,.btn:focus-visible,select:focus-visible{outline:2px solid var(--bus);outline-offset:1px}
+.btns{display:flex;flex-wrap:wrap;gap:8px}
+.btn{font-family:var(--f-body);font-weight:600;font-size:13px;padding:7px 12px;border-radius:4px;border:1px solid var(--line);background:var(--sheet);color:var(--ink);cursor:pointer}
+.btn:hover{border-color:var(--muted)}
+.btn.primary{background:var(--bus);border-color:var(--bus);color:var(--panel)}
+.btn.warn{color:var(--err);border-color:var(--err)}
+.btn:disabled{opacity:.45;cursor:not-allowed}
+.matrices{display:flex;flex-wrap:wrap;gap:12px}
+.mat{display:flex;flex-direction:column;gap:4px;min-width:0;max-width:100%}
+.mat .cap{font-family:var(--f-mono);font-size:11px;color:var(--muted)}
+.mgrid{display:grid;gap:2px;overflow-x:auto;max-width:100%}
+.mgrid input{width:36px;font-family:var(--f-mono);font-size:11px;padding:3px 2px;text-align:right;border:1px solid var(--line);border-radius:3px;background:var(--sheet);color:var(--ink)}
+.mgrid.A input{border-left:3px solid var(--a)}.mgrid.B input{border-left:3px solid var(--b)}
+.note{font-size:12px;color:var(--muted)}
+.log{font-family:var(--f-mono);font-size:12px;background:var(--sheet);border:1px solid var(--line);border-radius:4px;padding:8px;height:210px;overflow:auto;white-space:pre}
+.log .cpu{color:var(--bus)}.log .acc{color:var(--muted)}.log .err{color:var(--err);font-weight:600}.log .ok{color:var(--ok);font-weight:600}.log .irq{color:var(--ctrl);font-weight:600}
+.runbar{display:flex;flex-wrap:wrap;align-items:center;gap:10px}
+.runbar input[type=range]{width:140px}
+.speed{font-family:var(--f-mono);font-size:12px;color:var(--muted);min-width:9ch}
+/* diagram */
+.diagram{overflow-x:auto}
+.diagram svg{display:block;width:100%;min-width:760px;height:auto}
+svg text{font-family:var(--f-body);fill:var(--ink)}
+.sheet-bg{fill:var(--sheet)}
+.gridline{stroke:var(--grid);stroke-width:1}
+.blk rect.box,.blk polygon.box{fill:var(--panel);stroke:var(--line);stroke-width:1.5;transition:stroke .15s,fill .15s}
+.blk{cursor:pointer}
+.blk:hover rect.box,.blk:hover polygon.box{stroke:var(--muted)}
+.blk.sel rect.box,.blk.sel polygon.box{stroke:var(--ink);stroke-width:2}
+.blk.on rect.box,.blk.on polygon.box{stroke:var(--data);stroke-width:2.5;fill:var(--data-soft)}
+.blk.onc rect.box{stroke:var(--ctrl);stroke-width:2.5;fill:var(--ctrl-soft)}
+.blk.onb rect.box{stroke:var(--bus);stroke-width:2.5;fill:var(--bus-soft)}
+.bname{font-family:var(--f-head);font-weight:600;font-size:15px}
+.bfile{font-family:var(--f-mono);font-size:10.5px;fill:var(--muted)}
+.bsub{font-size:11px;fill:var(--muted)}
+.boundary{fill:none;stroke:var(--muted);stroke-width:1.2;stroke-dasharray:2 4}
+.edge path{fill:none;stroke-width:2;opacity:.32;transition:opacity .15s}
+.edge text{font-family:var(--f-mono);font-size:10px;opacity:.6}
+.edge.data path{stroke:var(--data)}.edge.data text{fill:var(--data)}
+.edge.ctrl path{stroke:var(--ctrl);stroke-dasharray:6 4}.edge.ctrl text{fill:var(--ctrl)}
+.edge.bus path{stroke:var(--bus)}.edge.bus text{fill:var(--bus)}
+.edge.on path{opacity:1;stroke-width:3}
+.edge.on text{opacity:1;font-weight:600}
+.edge.data.on path{stroke-dasharray:8 6;animation:flow .6s linear infinite}
+.edge.bus.on path{stroke-dasharray:8 6;animation:flow .6s linear infinite}
+.edge.ctrl.on path{animation:flow .8s linear infinite}
+@keyframes flow{to{stroke-dashoffset:-28}}
+@media (prefers-reduced-motion:reduce){.edge.on path{animation:none!important}}
+.mk-data{fill:var(--data)}.mk-ctrl{fill:var(--ctrl)}.mk-bus{fill:var(--bus)}
+.pill rect{fill:var(--sheet);stroke:var(--line)}
+.pill text{font-family:var(--f-mono);font-size:11px;fill:var(--muted);font-weight:500}
+.pill.cur rect{fill:var(--ctrl);stroke:var(--ctrl)}
+.pill.cur text{fill:var(--panel);font-weight:600}
+.pill.done rect{fill:var(--ctrl-soft);stroke:var(--ctrl)}
+.pe rect{fill:var(--sheet);stroke:var(--line)}
+.pe.hot rect{fill:var(--data-soft);stroke:var(--data)}
+.pe text{font-family:var(--f-mono);font-size:9px;fill:var(--muted)}
+.inner{fill:none;stroke:var(--line);stroke-dasharray:3 3}
+.status-line{font-family:var(--f-mono);font-size:12px}
+/* under the diagram */
+.info{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:16px}
+@media (max-width:760px){.info{grid-template-columns:minmax(0,1fr)}}
+.blockinfo h3{font-size:18px;margin-bottom:2px}
+.blockinfo .file{font-family:var(--f-mono);font-size:12px;color:var(--muted)}
+.blockinfo p{margin:8px 0 0;max-width:65ch}
+.blockinfo ul{margin:8px 0 0;padding-left:18px;font-size:13px}
+.blockinfo code,.mono{font-family:var(--f-mono);font-size:12px}
+.timeline{display:flex;height:30px;border-radius:4px;overflow:hidden;border:1px solid var(--line);position:relative;background:var(--sheet)}
+.seg{display:flex;align-items:center;justify-content:center;font-family:var(--f-mono);font-size:11px;color:var(--panel);white-space:nowrap;overflow:hidden;min-width:2px}
+.seg.fa{background:var(--a)}.seg.fb{background:var(--b)}.seg.cp{background:var(--data)}.seg.cy{background:var(--c)}
+.cursor{position:absolute;top:-3px;bottom:-3px;width:2px;background:var(--ink)}
+.tl-legend{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:6px;margin-top:8px;font-family:var(--f-mono);font-size:12px;font-variant-numeric:tabular-nums}
+.tl-legend b{font-weight:600}
+.statusrow{display:flex;flex-wrap:wrap;gap:6px;margin-top:10px}
+.chip{font-family:var(--f-mono);font-size:11px;padding:3px 8px;border-radius:999px;border:1px solid var(--line);color:var(--muted)}
+.chip.lit{background:var(--ctrl);border-color:var(--ctrl);color:var(--panel);font-weight:600}
+.chip.lit.ok{background:var(--ok);border-color:var(--ok)}
+.chip.lit.bad{background:var(--err);border-color:var(--err)}
+.kv{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:4px 14px;margin-top:10px;font-family:var(--f-mono);font-size:12px;font-variant-numeric:tabular-nums}
+.kv span{color:var(--muted)}
+.mems{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,330px),1fr));gap:16px}
+.mem canvas{display:block;width:100%;image-rendering:pixelated;border:1px solid var(--line);border-radius:3px;background:var(--sheet)}
+.mem .sub{font-size:12px;color:var(--muted);margin:-4px 0 8px}
+.mem .key{display:flex;flex-wrap:wrap;gap:10px;margin-top:8px;font-size:11px;color:var(--muted)}
+.mem .key i{display:inline-block;width:10px;height:10px;border-radius:2px;margin-right:4px;vertical-align:-1px}
+.hex{font-family:var(--f-mono);font-size:12px;margin-top:8px;display:grid;grid-template-columns:auto auto auto;gap:2px 14px;justify-content:start;font-variant-numeric:tabular-nums}
+.hex .hl{color:var(--data);font-weight:600}
+.pes{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:4px;font-family:var(--f-mono);font-size:12px;font-variant-numeric:tabular-nums}
+.pes div{border:1px solid var(--line);border-radius:3px;padding:6px 4px;text-align:right;background:var(--sheet);min-width:0;overflow:hidden}
+.pes div.pad{color:var(--pad);border-style:dashed}
+.pes div small{display:block;text-align:left;color:var(--muted);font-size:9px}
+.verdict{margin-top:8px;font-family:var(--f-mono);font-size:12px}
+.verdict.ok{color:var(--ok)}.verdict.bad{color:var(--err)}
+</style>
+<style>body{margin:0}[hidden]{display:none!important}</style>
+</head>
+<body>
+
+
+<div class="wrap">
+  <header>
+    <div>
+      <h1>Carch Matmul Accelerator</h1>
+      <p>C = A × B for signed INT8 matrices up to 64 × 64, on one fixed 4 × 4 systolic array. Write a job from the CPU console, press START, and watch each RTL block do its part, cycle by cycle. The cycle counts match the Verilog test benches.</p>
+    </div>
+    <div class="legend" aria-label="Wire legend">
+      <span><i class="lg-data"></i>data path</span>
+      <span><i class="lg-ctrl"></i>control path</span>
+      <span><i class="lg-bus"></i>CPU bus / irq</span>
+    </div>
+  </header>
+
+  <div class="top">
+    <!-- ======================= CPU console ======================= -->
+    <section class="card console" aria-label="CPU console">
+      <h2>CPU console · MMIO registers</h2>
+      <div class="regs">
+        <div class="field"><label for="r-m">M  0x20</label><input id="r-m" value="6" inputmode="numeric"></div>
+        <div class="field"><label for="r-k">K  0x28</label><input id="r-k" value="2" inputmode="numeric"></div>
+        <div class="field"><label for="r-n">N  0x24</label><input id="r-n" value="5" inputmode="numeric"></div>
+        <div class="field"><label for="r-a">A_ADDR 0x2C</label><input id="r-a" value="0x0102"></div>
+        <div class="field"><label for="r-b">B_ADDR 0x30</label><input id="r-b" value="0x1003"></div>
+        <div class="field"><label for="r-c">C_ADDR 0x34</label><input id="r-c" value="0x2000"></div>
+      </div>
+      <div class="regs">
+        <div class="field" style="grid-column:span 2"><label for="r-irq">Wait for the result</label>
+          <select id="r-irq"><option value="1">Interrupt (IRQ_EN = 1)</option><option value="0">Poll STATUS.DONE (IRQ_EN = 0)</option></select></div>
+        <div class="field"><label for="r-preset">Matrices</label>
+          <select id="r-preset"><option value="example">Worked example</option><option value="random">Random</option><option value="extreme">All −128</option></select></div>
+      </div>
+      <div class="matrices" id="matrices"></div>
+      <div class="btns">
+        <button class="btn primary" id="b-run">Write registers + START</button>
+        <button class="btn" id="b-pause" disabled>Pause</button>
+        <button class="btn" id="b-step">Step 1 cycle</button>
+        <button class="btn" id="b-phase">Next phase</button>
+        <button class="btn warn" id="b-abort" disabled>ABORT</button>
+      </div>
+      <div class="runbar">
+        <label for="speed" class="note">Speed</label>
+        <input type="range" id="speed" min="0" max="9" value="3">
+        <span class="speed" id="speed-l"></span>
+      </div>
+      <div>
+        <h2 style="margin-bottom:6px">Firmware trace</h2>
+        <div class="log" id="log" aria-live="polite"></div>
+      </div>
+      <p class="note">Try an error: M = 0 or 65 (code 1), C_ADDR = 0x2002 (code 2), or an address that runs past 0x8000 (code 5).</p>
+    </section>
+
+    <!-- ======================= Block diagram ======================= -->
+    <section class="card" aria-label="Block diagram">
+      <h2>Block diagram · one block per RTL file</h2>
+      <div class="diagram">
+      <svg viewBox="0 0 1040 630" role="img" aria-label="Accelerator block diagram with data path, control path and CPU bus">
+        <defs>
+          <marker id="m-data" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="mk-data" d="M0,0 L10,5 L0,10 z"/></marker>
+          <marker id="m-ctrl" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="mk-ctrl" d="M0,0 L10,5 L0,10 z"/></marker>
+          <marker id="m-bus" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="mk-bus" d="M0,0 L10,5 L0,10 z"/></marker>
+          <pattern id="sheetgrid" width="20" height="20" patternUnits="userSpaceOnUse"><path class="gridline" d="M20,0 V20 H0" fill="none"/></pattern>
+        </defs>
+        <rect class="sheet-bg" x="0" y="0" width="1040" height="630"/>
+        <rect x="0" y="0" width="1040" height="630" fill="url(#sheetgrid)"/>
+        <rect class="boundary" x="210" y="18" width="812" height="596" rx="6"/>
+        <text class="bfile" x="1012" y="606" text-anchor="end">matmul_accel.v  (top level)</text>
+
+        <!-- ===== edges (drawn under blocks) ===== -->
+        <g class="edge bus" id="e-bus"><path d="M187,82 H230" marker-start="url(#m-bus)" marker-end="url(#m-bus)"/><text x="208" y="74" text-anchor="middle">MMIO</text></g>
+        <g class="edge bus" id="e-irq"><path d="M230,128 H187" marker-end="url(#m-bus)"/><text x="208" y="121" text-anchor="middle">irq</text></g>
+        <g class="edge data" id="e-portA"><path d="M100,147 V328" marker-start="url(#m-data)" marker-end="url(#m-data)"/><text x="108" y="232">port A</text><text x="108" y="245">CPU stores A, B</text></g>
+        <g class="edge ctrl" id="e-ctlregs"><path d="M434,78 H468" marker-end="url(#m-ctrl)"/><path d="M468,128 H434" marker-end="url(#m-ctrl)"/><text x="451" y="70" text-anchor="middle">start</text><text x="451" y="143" text-anchor="middle">done</text></g>
+        <g class="edge ctrl" id="e-ctlfetch"><path d="M520,156 V190 H332 V223" marker-start="url(#m-ctrl)" marker-end="url(#m-ctrl)"/><text x="426" y="184" text-anchor="middle">fu_start · base · rows · cols / fu_done</text></g>
+        <g class="edge ctrl" id="e-ctlseq"><path d="M847,156 V193" marker-start="url(#m-ctrl)" marker-end="url(#m-ctrl)"/><text x="855" y="179">seq_start / seq_done</text></g>
+        <g class="edge ctrl" id="e-ctlcopy"><path d="M662,156 V452 H557 V468" marker-start="url(#m-ctrl)" marker-end="url(#m-ctrl)"/><text x="656" y="402" transform="rotate(-90 656 402)" text-anchor="middle">cp_start / done</text></g>
+        <g class="edge ctrl" id="e-ctlmux"><path d="M1012,98 H1016 V592 H305 V542" marker-end="url(#m-ctrl)"/><text x="660" y="586" text-anchor="middle">copy_phase → port B select</text></g>
+        <g class="edge data" id="e-ramB"><path d="M187,485 H245" marker-start="url(#m-data)" marker-end="url(#m-data)"/><text x="216" y="478" text-anchor="middle">port B</text></g>
+        <g class="edge data" id="e-muxfetch"><path d="M287,438 V332" marker-end="url(#m-data)"/><path d="M337,332 V444" marker-end="url(#m-data)"/><text x="345" y="380">addr ↓</text><text x="292" y="398">rdata ↑</text></g>
+        <g class="edge data" id="e-fspa"><path d="M434,247 H468" marker-end="url(#m-data)"/><text x="451" y="240" text-anchor="middle">wr A</text></g>
+        <g class="edge data" id="e-fspb"><path d="M434,305 H452 V337 H468" marker-end="url(#m-data)"/><text x="453" y="355" text-anchor="middle">wr B</text></g>
+        <g class="edge data" id="e-spaseq"><path d="M647,247 H683" marker-end="url(#m-data)"/><text x="665" y="240" text-anchor="middle">a_in</text></g>
+        <g class="edge data" id="e-spbseq"><path d="M647,337 H683" marker-end="url(#m-data)"/><text x="665" y="330" text-anchor="middle">b_in</text></g>
+        <g class="edge data" id="e-seqcs"><path d="M915,422 V468" marker-end="url(#m-data)"/><text x="922" y="450">4 writes / cycle</text></g>
+        <g class="edge data" id="e-cscopy"><path d="M818,517 H647" marker-end="url(#m-data)"/><text x="732" y="509" text-anchor="middle">rd row, col → word</text></g>
+        <g class="edge data" id="e-copymux"><path d="M468,500 H367" marker-end="url(#m-data)"/><text x="418" y="492" text-anchor="middle">C words</text></g>
+
+        <!-- ===== blocks ===== -->
+        <g class="blk" id="k-cpu" data-b="cpu"><rect class="box" x="20" y="40" width="167" height="107" rx="5"/>
+          <text class="bname" x="32" y="66">CPU</text><text class="bfile" x="32" y="82">PicoRV32 (later)</text>
+          <text class="bsub" x="32" y="104">sw → registers, START</text><text class="bsub" x="32" y="120">wait: irq or poll DONE</text>
+          <text class="bsub" x="32" y="136" id="cpu-state">idle</text></g>
+        <g class="blk" id="k-ram" data-b="ram"><rect class="box" x="20" y="330" width="167" height="205" rx="5"/>
+          <text class="bname" x="32" y="356">Data RAM</text><text class="bfile" x="32" y="372">dual_port_ram.v</text>
+          <text class="bsub" x="32" y="394">32 KB, shared</text><text class="bsub" x="32" y="410">port A: CPU</text><text class="bsub" x="32" y="426">port B: accelerator</text>
+          <rect x="32" y="440" width="143" height="14" rx="2" style="fill:var(--stale)"/>
+          <rect id="ram-a" x="32" y="440" width="0" height="14" style="fill:var(--a)"/><rect id="ram-b" x="32" y="440" width="0" height="14" style="fill:var(--b)"/><rect id="ram-c" x="32" y="440" width="0" height="14" style="fill:var(--c)"/>
+          <text class="bfile" x="32" y="470">0x0000</text><text class="bfile" x="175" y="470" text-anchor="end">0x8000</text>
+          <text class="bsub" x="32" y="494" id="ram-op">—</text><text class="bsub" x="32" y="512" id="ram-op2"></text></g>
+        <g class="blk" id="k-regs" data-b="regs"><rect class="box" x="232" y="42" width="202" height="114" rx="5"/>
+          <text class="bname" x="244" y="67">Register block</text><text class="bfile" x="244" y="83">accel_regs.v</text>
+          <text class="bsub" x="244" y="104">STAGING → ACTIVE on START</text>
+          <text class="status-line" x="244" y="126" id="regs-status">STATUS ----</text>
+          <text class="bsub" x="244" y="145" id="regs-err">ERR_CODE 0</text></g>
+        <g class="blk" id="k-ctrl" data-b="ctrl"><rect class="box" x="470" y="42" width="542" height="114" rx="5"/>
+          <text class="bname" x="484" y="67">Job controller</text><text class="bfile" x="600" y="67">job_controller.v</text>
+          <text class="bsub" x="1000" y="67" text-anchor="end" id="ctrl-cyc">cycle 0</text>
+          <g id="fsm"></g></g>
+        <g class="blk" id="k-fetch" data-b="fetch"><rect class="box" x="232" y="225" width="202" height="105" rx="5"/>
+          <text class="bname" x="244" y="250">Fetch unit</text><text class="bfile" x="244" y="266">fetch_unit.v</text>
+          
+          <g id="fbuf"></g></g>
+        <g class="blk" id="k-spa" data-b="spa"><rect class="box" x="470" y="212" width="177" height="72" rx="5"/>
+          <text class="bname" x="482" y="236">Scratchpad A</text><text class="bfile" x="482" y="252">scratchpad_a.v</text><text class="bsub" x="482" y="270">4 banks · row mod 4</text></g>
+        <g class="blk" id="k-spb" data-b="spb"><rect class="box" x="470" y="302" width="177" height="72" rx="5"/>
+          <text class="bname" x="482" y="326">Scratchpad B</text><text class="bfile" x="482" y="342">scratchpad_b.v</text><text class="bsub" x="482" y="360">word {k, col group}</text></g>
+        <g class="blk" id="k-seq" data-b="seq"><rect class="box" x="685" y="195" width="327" height="227" rx="5"/>
+          <text class="bname" x="697" y="220">Tile sequencer</text><text class="bfile" x="697" y="236">tile_sequencer.v</text>
+          <text class="bsub" x="697" y="262">tile (gi, gj)</text><text class="status-line" x="697" y="280" id="seq-tile">—</text>
+          <text class="bsub" x="697" y="304">step k</text><text class="status-line" x="697" y="322" id="seq-k">—</text>
+          <text class="bsub" x="697" y="346">P = max(K,4)</text><text class="status-line" x="697" y="364" id="seq-p">—</text>
+          <rect class="inner" x="800" y="244" width="198" height="168" rx="4"/>
+          <text class="bfile" x="806" y="258">systolic_4_4_array.v · pe_booth_csa.v</text>
+          <g id="pegrid"></g></g>
+        <g class="blk" id="k-cs" data-b="cs"><rect class="box" x="820" y="470" width="192" height="95" rx="5"/>
+          <text class="bname" x="832" y="495">C store</text><text class="bfile" x="832" y="511">c_store.v</text><text class="bsub" x="832" y="530">16 KB · 4 banks</text><text class="bsub" x="832" y="548" id="cs-note">bank = C row mod 4</text></g>
+        <g class="blk" id="k-copy" data-b="copy"><rect class="box" x="470" y="470" width="177" height="95" rx="5"/>
+          <text class="bname" x="482" y="495">C copier</text><text class="bfile" x="482" y="511">c_copier.v</text><text class="bsub" x="482" y="530">1 word / cycle</text><text class="bsub" x="482" y="548" id="copy-note">addr = C_ADDR/4 + i</text></g>
+        <g class="blk" id="k-mux" data-b="mux"><polygon class="box" points="245,432 367,452 367,520 245,540"/>
+          <text class="bname" x="300" y="481" text-anchor="middle" style="font-size:13px">Port B mux</text><text class="bfile" x="300" y="497" text-anchor="middle">matmul_accel.v</text>
+          <text class="bsub" x="300" y="514" text-anchor="middle" id="mux-sel">→ fetch unit</text></g>
+      </svg>
+      </div>
+      <div class="info" style="margin-top:12px">
+        <div class="blockinfo" id="blockinfo"></div>
+        <div>
+          <h2>Job timeline</h2>
+          <div class="timeline" id="timeline"><div class="cursor" id="tl-cursor" style="left:0"></div></div>
+          <div class="tl-legend" id="tl-legend"></div>
+          <div class="statusrow" id="statusrow"></div>
+          <div class="kv" id="kv"></div>
+        </div>
+      </div>
+    </section>
+  </div>
+
+  <!-- ======================= live memories ======================= -->
+  <section class="mems" aria-label="Memories">
+    <div class="card mem"><h2>Scratchpad A</h2><p class="sub" id="spa-sub">M × K as stored: row r in bank r mod 4</p><canvas id="cv-spa"></canvas>
+      <div class="key"><span><i style="background:var(--a)"></i>written this job</span><span><i style="background:var(--stale)"></i>stale (earlier job)</span><span><i style="background:var(--data)"></i>read now</span></div></div>
+    <div class="card mem"><h2>Scratchpad B</h2><p class="sub" id="spb-sub">K × N</p><canvas id="cv-spb"></canvas>
+      <div class="key"><span><i style="background:var(--b)"></i>written this job</span><span><i style="background:var(--stale)"></i>stale</span><span><i style="background:var(--data)"></i>read now</span></div></div>
+    <div class="card mem"><h2>PE accumulators</h2><p class="sub" id="pe-sub">Current 4 × 4 tile</p><div class="pes" id="pes"></div>
+      <p class="note" style="margin-top:8px">Each PE(r, c) adds A[4gi+r][k] × B[k][4gj+c] every step. Real hardware skews the inputs by r + c cycles; that delay is left out here.</p></div>
+    <div class="card mem"><h2>C store</h2><p class="sub" id="cs-sub">Padded M′ × N′ results</p><canvas id="cv-cs"></canvas>
+      <div class="key"><span><i style="background:var(--c)"></i>result</span><span><i style="background:var(--pad)"></i>padding (never copied)</span><span><i style="background:var(--data)"></i>copier reading</span></div></div>
+    <div class="card mem"><h2>C in data RAM</h2><p class="sub" id="cr-sub">M × N, 32-bit words from C_ADDR</p><canvas id="cv-cr"></canvas>
+      <div class="verdict" id="verdict"></div></div>
+    <div class="card mem"><h2>RAM port B</h2><p class="sub">Words around the last access</p><div class="hex" id="hex"></div></div>
+  </section>
+</div>
+
+<script>
+(() => {
+"use strict";
+const RAM_BYTES = 32768, MAXD = 64;
+const $ = id => document.getElementById(id);
+const css = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+
+/* ---------------- block descriptions (one per RTL file) ---------------- */
+const BLOCKS = {
+  cpu:{name:"CPU", file:"PicoRV32 + firmware (later)", text:"Writes the job into the registers with ordinary stores, presses START, then either sleeps until irq rises or polls STATUS.DONE.",
+    ports:["Writes M, N, K, A_ADDR, B_ADDR, C_ADDR, IRQ_EN, then CTRL.START", "Clears DONE by writing 1 to STATUS bit 2", "Uses data RAM port A for A, B and C"]},
+  ram:{name:"Data RAM", file:"rtl/dual_port_ram.v", text:"True dual-port, word-addressed, 32-bit with byte enables and one-cycle read latency. The CPU and the accelerator share it, so no data is copied between separate memories.",
+    ports:["Port A: CPU", "Port B: fetch unit reads, then copier writes", "32 KB here (RAM_ADDR_W = 13)"]},
+  regs:{name:"Register block", file:"rtl/accel_regs.v", text:"The CPU's control panel. Register writes go to STAGING; an accepted START copies them into ACTIVE, so changing registers never disturbs a running job. START is checked first.",
+    ports:["Errors: 4 busy, 1 size outside 1..64, 2 C_ADDR not a multiple of 4, 5 past end of RAM", "STATUS: BUSY, DONE (W1C), ERROR (W1C)", "irq = DONE & IRQ_EN"]},
+  ctrl:{name:"Job controller", file:"rtl/job_controller.v", text:"The conductor. Each phase starts one block, waits for its done, then moves on. ABORT resets every block and returns to IDLE.",
+    ports:["IDLE → FETCH_A → FETCH_B → COMPUTE → COPY → IDLE", "Gives the sequencer (M−1)>>2, (N−1)>>2 and K−1", "Counts FETCH_CYCLES and COMPUTE_CYCLES"]},
+  fetch:{name:"Fetch unit", file:"rtl/fetch_unit.v", text:"Copies one row-major matrix from RAM into a scratchpad: run once for A, once for B. It reads one word per cycle into an 8-byte buffer and writes one 4-byte group per cycle. A_ADDR and B_ADDR may have any alignment.",
+    ports:["RAM: ram_en, ram_addr → ram_rdata next cycle", "Scratchpad: wr_row, wr_word, wr_data (zero-padded at row end)", "Look-ahead read rule keeps the buffer within 8 bytes"]},
+  spa:{name:"Scratchpad A", file:"rtl/scratchpad_a.v", text:"On-chip copy of A in four banks: row r lives in bank r mod 4. One read returns A[4gi..4gi+3][k], exactly the array's a_in.",
+    ports:["Write: row, word, 32-bit data", "Read: (group, k) → 4 bytes, one cycle later", "4 KB, 4 × RAMB18"]},
+  spb:{name:"Scratchpad B", file:"rtl/scratchpad_b.v", text:"On-chip copy of B, one word per (k, column group). One read returns B[k][4gj..4gj+3], exactly the array's b_in.",
+    ports:["Write: k, word, 32-bit data", "Read: (group, k) → 4 bytes", "4 KB, 1 × RAMB36"]},
+  seq:{name:"Tile sequencer", file:"rtl/tile_sequencer.v (+ systolic_4_4_array.v, pe_booth_csa.v)", text:"Cuts C into 4 × 4 tiles and runs them back to back on the fixed array. Each tile takes P = max(K, 4) cycles; drain goes with the next tile's first step, so the array never stops.",
+    ports:["Counters: k (inner), gj, gi (outer)", "16 Booth/carry-save PEs, 24-bit accumulators", "Results sign-extended to 32 bits, 4 c_store writes per cycle"]},
+  cs:{name:"C store", file:"rtl/c_store.v", text:"On-chip copy of the padded result. Four banks by C row mod 4, so the sequencer can store up to four results per cycle. Padding rows and columns hold harmless leftovers that are never copied.",
+    ports:["Write: 4 ports, address {row div 4, col}", "Read: (row, col) → word, one cycle later", "16 KB, 4 × RAMB36"]},
+  copy:{name:"C copier", file:"rtl/c_copier.v", text:"After compute, walks row 0..M−1 and column 0..N−1 of the C store and writes each word to RAM. C is row-major in RAM, so the address simply counts up from C_ADDR/4.",
+    ports:["Takes M × N + 1 cycles", "rows_ready lets a later version overlap copy with compute", "Never reads RAM"]},
+  mux:{name:"RAM port B mux", file:"inside rtl/matmul_accel.v", text:"Port B belongs to the fetch unit during FETCH_A and FETCH_B, and to the copier during COPY. They never overlap, so no arbiter is needed.",
+    ports:["Select = copy_phase from the controller", "Fetch side only reads (we = 0)"]}
+};
+
+/* ---------------- state ---------------- */
+const st = {
+  ram:new Uint8Array(RAM_BYTES),
+  spA:new Int16Array(MAXD*MAXD), spAw:new Uint8Array(MAXD*MAXD),   // 0 never, 1 stale, 2 this job
+  spB:new Int16Array(MAXD*MAXD), spBw:new Uint8Array(MAXD*MAXD),
+  cs:new Int32Array(MAXD*MAXD),  csw:new Uint8Array(MAXD*MAXD),    // 0 empty, 1 stale, 2 this job
+  acc:new Int32Array(16), tile:null, k:null, prevTile:null,
+  phase:"IDLE", cycle:0, status:{busy:0,done:0,err:0}, errCode:0, jobs:0, fetchCyc:0, compCyc:0,
+  act:null, frames:[], fi:0, running:false, buf:[], lastAccess:null, readA:null, readB:null, readCS:null,
+  cpuState:"idle", irq:0, irqEn:1, crw:new Uint8Array(MAXD*MAXD), crv:new Int32Array(MAXD*MAXD), plan:null
+};
+let A = [], B = [];   // the job's matrices (numbers)
+
+/* ---------------- matrices ---------------- */
+const EX_A = [[1,2],[3,4],[5,6],[7,8],[9,10],[11,12]];
+const EX_B = [[1,0,2,1,3],[0,1,1,2,1]];
+function num(id){ const v = $(id).value.trim(); const n = v.toLowerCase().startsWith("0x") ? parseInt(v,16) : parseInt(v,10); return Number.isFinite(n) ? n : NaN; }
+function dims(){ return {M:num("r-m"), K:num("r-k"), N:num("r-n")}; }
+function clampD(x){ return Math.max(1, Math.min(MAXD, x|0 || 1)); }
+let seed = 7;
+function rnd(){ seed = (seed*1103515245 + 12345) & 0x7fffffff; return seed; }
+function buildMatrices(){
+  const {M,K,N} = dims(); const m = clampD(M), k = clampD(K), n = clampD(N);
+  const p = $("r-preset").value;
+  const gen = (r,c,ex,i,j) => p === "extreme" ? -128 : (p === "example" && ex && ex[i] && ex[i][j] !== undefined ? ex[i][j] : (rnd() % 256) - 128);
+  A = Array.from({length:m}, (_,i) => Array.from({length:k}, (_,j) => gen(m,k,EX_A,i,j)));
+  B = Array.from({length:k}, (_,i) => Array.from({length:n}, (_,j) => gen(k,n,EX_B,i,j)));
+  renderMatrixInputs();
+}
+function renderMatrixInputs(){
+  const box = $("matrices"); box.innerHTML = "";
+  [["A",A],["B",B]].forEach(([name, mat]) => {
+    const rows = mat.length, cols = mat[0].length;
+    const w = document.createElement("div"); w.className = "mat";
+    const cap = document.createElement("div"); cap.className = "cap"; cap.textContent = `${name}: ${rows} × ${cols} INT8`;
+    w.appendChild(cap);
+    if (rows <= 8 && cols <= 8) {
+      const g = document.createElement("div"); g.className = "mgrid " + name; g.style.gridTemplateColumns = `repeat(${cols}, auto)`;
+      mat.forEach((row,i) => row.forEach((v,j) => {
+        const inp = document.createElement("input"); inp.id = `m${name}-${i}-${j}`; inp.value = v; inp.setAttribute("aria-label", `${name}[${i}][${j}]`);
+        inp.addEventListener("change", () => { let x = parseInt(inp.value,10); if (!Number.isFinite(x)) x = 0; x = Math.max(-128, Math.min(127, x)); inp.value = x; mat[i][j] = x; });
+        g.appendChild(inp);
+      }));
+      w.appendChild(g);
+    } else {
+      const n = document.createElement("div"); n.className = "note"; n.textContent = `Too large to edit here; filled with ${$("r-preset").value === "extreme" ? "−128" : "random values"}.`;
+      w.appendChild(n);
+    }
+    box.appendChild(w);
+  });
+}
+
+/* ---------------- log ---------------- */
+function log(text, cls){ const d = document.createElement("div"); d.className = cls || "acc"; d.textContent = text; const L = $("log"); L.appendChild(d); while (L.childNodes.length > 400) L.removeChild(L.firstChild); L.scrollTop = L.scrollHeight; }
+const hex = (v, w=4) => "0x" + (v >>> 0).toString(16).padStart(w, "0");
+
+/* ---------------- frame builders (cycle model = RTL) ---------------- */
+function fetchFrames(phase, base, rows, cols){
+  const fr = [];
+  fr.push({ph:phase, kind:"fstart", edges:["e-ctlfetch"], blocks:["ctrl","fetch"]});
+  const offset = base & 3; let next = base >> 2;
+  const last = base + rows*cols - 1; let wordsLeft = (last >> 2) - (base >> 2) + 1;
+  let buf = [], col = 0, row = 0, rv = false, fp = true, pend = null, pendAddr = null;
+  for (;;) {
+    const g = Math.min(4, cols - col), emit = buf.length >= g;
+    const rowEnd = emit && col + g === cols, lastGroup = rowEnd && row + 1 === rows;
+    let write = null;
+    if (emit) { const bytes = [0,0,0,0]; for (let i = 0; i < g; i++) bytes[i] = buf[i]; write = {row, word:col >> 2, bytes, g}; buf = buf.slice(g); }
+    let arrived = null;
+    if (rv) { const drop = fp ? offset : 0; for (let i = drop; i < 4; i++) buf.push(pend[i]); arrived = {addr:pendAddr, drop}; fp = false; }
+    const coln = !emit ? col : (rowEnd ? 0 : col + g), rown = rowEnd ? row + 1 : row;
+    const gn = Math.min(4, cols - coln), leaves = buf.length >= gn ? gn : 0;
+    const en = !lastGroup && wordsLeft > 0 && buf.length + 4 <= 8 + leaves;
+    let read = null;
+    if (en) { read = next; pend = [0,1,2,3].map(i => st.ram[next*4 + i]); pendAddr = next; next++; wordsLeft--; }
+    rv = en; col = coln; row = rown;
+    const edges = ["e-ctlfetch"]; const blocks = ["fetch"];
+    if (read !== null || arrived) { edges.push("e-ramB","e-muxfetch"); blocks.push("ram","mux"); }
+    if (write) { edges.push(phase === "FETCH_A" ? "e-fspa" : "e-fspb"); blocks.push(phase === "FETCH_A" ? "spa" : "spb"); }
+    fr.push({ph:phase, kind:"fbusy", read, write, arrived, buf:buf.slice(), edges, blocks});
+    if (lastGroup) break;
+  }
+  fr.push({ph:phase, kind:"fdone", edges:["e-ctlfetch"], blocks:["ctrl","fetch"]});
+  return fr;
+}
+function computeFrames(M, N, K){
+  const fr = [], P = Math.max(K, 4), RG = Math.ceil(M/4), CG = Math.ceil(N/4);
+  fr.push({ph:"COMPUTE", kind:"cstart", edges:["e-ctlseq"], blocks:["ctrl","seq"]});
+  fr.push({ph:"COMPUTE", kind:"clear", edges:["e-ctlseq"], blocks:["seq"]});
+  let prev = null;
+  for (let gi = 0; gi < RG; gi++) for (let gj = 0; gj < CG; gj++) {
+    for (let s = 0; s < P; s++) {
+      const drain = (s === 0 && prev) ? prev : null;
+      const edges = s < K ? ["e-spaseq","e-spbseq"] : [];
+      if (drain) edges.push("e-seqcs");
+      fr.push({ph:"COMPUTE", kind:"slot", gi, gj, s, valid:s < K, drain, edges, blocks: s < K ? ["spa","spb","seq"].concat(drain ? ["cs"] : []) : ["seq"].concat(drain ? ["cs"] : [])});
+    }
+    prev = {gi, gj};
+  }
+  fr.push({ph:"COMPUTE", kind:"endm", drain:prev, edges:["e-seqcs"], blocks:["seq","cs"]});
+  for (let i = 0; i < 8; i++) fr.push({ph:"COMPUTE", kind:"flush", edges:["e-seqcs"], blocks:["seq","cs"]});
+  fr.push({ph:"COMPUTE", kind:"cdone", edges:["e-ctlseq"], blocks:["ctrl","seq"]});
+  return fr;
+}
+function copyFrames(M, N, cWord){
+  const fr = [], MN = M*N;
+  fr.push({ph:"COPY", kind:"pstart", edges:["e-ctlcopy","e-ctlmux"], blocks:["ctrl","copy","mux"]});
+  for (let i = 0; i <= MN; i++) {
+    const read = i < MN ? i : null, write = i > 0 ? i - 1 : null;
+    const edges = ["e-ctlmux"]; const blocks = ["copy","mux"];
+    if (read !== null) { edges.push("e-cscopy"); blocks.push("cs"); }
+    if (write !== null) { edges.push("e-copymux","e-ramB"); blocks.push("ram"); }
+    fr.push({ph:"COPY", kind:"copy", read, write, addr: write !== null ? cWord + write : null, edges, blocks});
+  }
+  fr.push({ph:"COPY", kind:"pdone", edges:["e-ctlcopy","e-ctlregs"], blocks:["ctrl","copy","regs"]});
+  return fr;
+}
+
+/* ---------------- START checks (same order as accel_regs.v) ---------------- */
+function startError(j){
+  if (st.status.busy) return 4;
+  if (!(j.M >= 1 && j.M <= 64 && j.N >= 1 && j.N <= 64 && j.K >= 1 && j.K <= 64)) return 1;
+  if ((j.C & 3) !== 0) return 2;
+  if (!(j.A >= 0 && j.B >= 0 && j.C >= 0) || j.A + j.M*j.K > RAM_BYTES || j.B + j.K*j.N > RAM_BYTES || j.C + 4*j.M*j.N > RAM_BYTES) return 5;
+  return 0;
+}
+const ERRTXT = {1:"M, N or K outside 1..64", 2:"C_ADDR not a multiple of 4", 4:"START while busy", 5:"A, B or C runs past the end of RAM (0x8000)"};
+const ERRSHORT = {1:"size", 2:"C align", 4:"busy", 5:"past RAM end"};
+
+/* ---------------- program the job (CPU side) ---------------- */
+function planJob(){
+  const j = {M:num("r-m"), K:num("r-k"), N:num("r-n"), A:num("r-a"), B:num("r-b"), C:num("r-c"), irq:+$("r-irq").value};
+  const fr = [];
+  const okDims = j.M >= 1 && j.M <= 64 && j.K >= 1 && j.K <= 64 && j.N >= 1 && j.N <= 64;
+  if (okDims && (A.length !== j.M || A[0].length !== j.K || B[0].length !== j.N)) buildMatrices();
+  if (okDims && j.A >= 0 && j.B >= 0 && j.A + j.M*j.K <= RAM_BYTES && j.B + j.K*j.N <= RAM_BYTES)
+    fr.push({ph:"CPU", kind:"store", job:j, edges:["e-portA"], blocks:["cpu","ram"]});
+  const W = [["M",0x20,j.M],["N",0x24,j.N],["K",0x28,j.K],["A_ADDR",0x2C,j.A],["B_ADDR",0x30,j.B],["C_ADDR",0x34,j.C],["IRQ_EN",0x38,j.irq]];
+  W.forEach(([n,o,v]) => fr.push({ph:"CPU", kind:"reg", name:n, off:o, val:v, edges:["e-bus"], blocks:["cpu","regs"]}));
+  fr.push({ph:"CPU", kind:"start", job:j, edges:["e-bus","e-ctlregs"], blocks:["cpu","regs","ctrl"]});
+  return fr;
+}
+
+/* ---------------- apply one frame ---------------- */
+function apply(f){
+  st.readA = st.readB = st.readCS = null;
+  if (f.ph !== "CPU" && f.ph !== "HOST") { st.cycle++; if (f.ph.startsWith("FETCH")) st.fetchCyc++; else st.compCyc++; }
+  switch (f.kind) {
+    case "store": {
+      const j = f.job;
+      for (let i = 0; i < j.M; i++) for (let k = 0; k < j.K; k++) st.ram[j.A + i*j.K + k] = A[i][k] & 0xff;
+      for (let k = 0; k < j.K; k++) for (let c = 0; c < j.N; c++) st.ram[j.B + k*j.N + c] = B[k][c] & 0xff;
+      log(`# store A (${j.M*j.K} B) at ${hex(j.A)}, B (${j.K*j.N} B) at ${hex(j.B)} via port A`, "cpu");
+      st.cpuState = "storing A, B"; break;
+    }
+    case "reg": log(`sw  ${String(f.val).padStart(6)}, ${hex(f.off,2)}(a0)   # ${f.name}`, "cpu"); st.cpuState = "writing registers"; break;
+    case "start": {
+      log(`sw       1, 0x08(a0)   # CTRL.START`, "cpu");
+      const e = startError(f.job);
+      if (e) { st.status.err = 1; st.errCode = e; log(`START rejected: ERR_CODE ${e} (${ERRTXT[e]})`, "err"); st.cpuState = "error " + e; st.queue = []; break; }
+      const j = f.job; st.act = j; st.status.busy = 1; st.status.done = 0; st.cycle = 0; st.fetchCyc = 0; st.compCyc = 0;
+      // Mark earlier contents stale.
+      for (let i = 0; i < MAXD*MAXD; i++) { if (st.spAw[i] === 2) st.spAw[i] = 1; if (st.spBw[i] === 2) st.spBw[i] = 1; if (st.csw[i] === 2) st.csw[i] = 1; st.crw[i] = 0; }
+      st.acc.fill(0); st.tile = null; st.k = null;
+      const fa = fetchFrames("FETCH_A", j.A, j.M, j.K), fb = fetchFrames("FETCH_B", j.B, j.K, j.N);
+      const cf = computeFrames(j.M, j.N, j.K), pf = copyFrames(j.M, j.N, j.C >> 2);
+      st.plan = {fa:fa.length, fb:fb.length, cp:cf.length, cy:pf.length};
+      const tail = [{ph:"HOST", kind:"done", edges: j.irq ? ["e-irq"] : ["e-bus"], blocks:["regs","cpu"]}];
+      st.queue = fa.concat(fb, cf, pf, tail);
+      st.phase = "FETCH_A";
+      log(`accepted: ${j.M}×${j.K} · ${j.K}×${j.N}, ${Math.ceil(j.M/4)*Math.ceil(j.N/4)} tiles`, "ok");
+      st.cpuState = j.irq ? "sleeping (wfi)" : "polling STATUS";
+      if (!j.irq) log(`poll: lw STATUS; andi 4; beqz …`, "cpu");
+      break;
+    }
+    case "fstart": st.phase = f.ph; st.buf = []; break;
+    case "fbusy": {
+      if (f.read !== null) st.lastAccess = {addr:f.read, op:"read", by:"fetch"};
+      if (f.write) {
+        const w = f.write, isA = f.ph === "FETCH_A";
+        for (let l = 0; l < 4; l++) {
+          const col = 4*w.word + l; if (col >= MAXD) continue;
+          const v = (w.bytes[l] << 24) >> 24;
+          if (isA) { st.spA[w.row*MAXD + col] = v; st.spAw[w.row*MAXD + col] = 2; }
+          else { st.spB[w.row*MAXD + col] = v; st.spBw[w.row*MAXD + col] = 2; }
+        }
+      }
+      st.buf = f.buf; break;
+    }
+    case "fdone": st.buf = []; break;
+    case "cstart": st.phase = "COMPUTE"; break;
+    case "clear": st.acc.fill(0); break;
+    case "slot": {
+      if (f.drain) storeTile(f.drain);
+      if (f.s === 0) st.acc.fill(0);
+      st.tile = {gi:f.gi, gj:f.gj}; st.k = f.valid ? f.s : null;
+      if (f.valid) {
+        for (let r = 0; r < 4; r++) for (let c = 0; c < 4; c++) {
+          const a = st.spA[(4*f.gi + r)*MAXD + f.s], b = st.spB[f.s*MAXD + 4*f.gj + c];
+          st.acc[r*4 + c] += a * b;
+        }
+        st.readA = {gi:f.gi, k:f.s}; st.readB = {gj:f.gj, k:f.s};
+      }
+      break;
+    }
+    case "endm": storeTile(f.drain); st.k = null; break;
+    case "flush": break;
+    case "cdone": st.tile = null; break;
+    case "pstart": st.phase = "COPY"; break;
+    case "copy": {
+      const N = st.act.N;
+      if (f.read !== null) st.readCS = {r: Math.floor(f.read / N), c: f.read % N};
+      if (f.write !== null) {
+        const r = Math.floor(f.write / N), c = f.write % N, v = st.cs[r*MAXD + c];
+        const byte = f.addr*4; for (let i = 0; i < 4; i++) st.ram[byte + i] = (v >>> (8*i)) & 0xff;
+        st.crv[f.write] = v; st.crw[f.write] = 1; st.lastAccess = {addr:f.addr, op:"write", by:"copier"};
+      }
+      break;
+    }
+    case "pdone": st.phase = "IDLE"; st.status.busy = 0; st.status.done = 1; st.jobs++; break;
+    case "done": {
+      const j = st.act;
+      if (j.irq) { log(`irq ↑ (DONE & IRQ_EN) after ${st.cycle} cycles`, "irq"); log(`handler: lw STATUS → DONE; sw 4, 0x0C(a0)  # clear DONE`, "cpu"); }
+      else log(`lw STATUS → DONE after ${st.cycle} cycles (≈${Math.round(st.cycle/5)} polls)`, "cpu");
+      st.status.done = 0; st.cpuState = "result ready";
+      checkResult();
+      break;
+    }
+  }
+  if (f.ph === "COMPUTE" && f.kind === "cstart") log(`COMPUTE: ${Math.ceil(st.act.M/4)}×${Math.ceil(st.act.N/4)} tiles × P=${Math.max(st.act.K,4)}`, "acc");
+  if (f.kind === "fstart") log(`${f.ph}: base ${hex(f.ph === "FETCH_A" ? st.act.A : st.act.B)}, ${f.ph === "FETCH_A" ? st.act.M + "×" + st.act.K : st.act.K + "×" + st.act.N}`, "acc");
+  if (f.kind === "pstart") log(`COPY: ${st.act.M*st.act.N} words to ${hex(st.act.C)}`, "acc");
+  st.edges = f.edges; st.blocks = f.blocks; st.kind = f.kind;
+}
+function storeTile(t){
+  for (let r = 0; r < 4; r++) for (let c = 0; c < 4; c++) {
+    const R = 4*t.gi + r, C = 4*t.gj + c;
+    st.cs[R*MAXD + C] = st.acc[r*4 + c]; st.csw[R*MAXD + C] = 2;
+  }
+}
+function checkResult(){
+  const j = st.act; let bad = 0;
+  for (let i = 0; i < j.M; i++) for (let c = 0; c < j.N; c++) {
+    let s = 0; for (let k = 0; k < j.K; k++) s += A[i][k] * B[k][c];
+    const w = j.C + 4*(i*j.N + c); const v = st.ram[w] | (st.ram[w+1] << 8) | (st.ram[w+2] << 16) | (st.ram[w+3] << 24);
+    if (v !== s) bad++;
+  }
+  const el = $("verdict");
+  el.className = "verdict " + (bad ? "bad" : "ok");
+  el.textContent = bad ? `${bad} of ${j.M*j.N} words differ from the software result` : `All ${j.M*j.N} words match the software result (Σ A[i][k]·B[k][j])`;
+  log(bad ? `check: ${bad} mismatches` : `check: C matches software (${j.M*j.N} words)`, bad ? "err" : "ok");
+}
+
+/* ---------------- run control ---------------- */
+const SPEEDS = [1, 3, 10, 30, 100, 300, 1000, 3000, 10000, 40000];
+let raf = null, lastT = 0, carry = 0;
+function speed(){ return SPEEDS[+$("speed").value]; }
+function hasWork(){ return st.queue && st.queue.length > 0; }
+function stepOne(){ if (!hasWork()) return false; apply(st.queue.shift()); return true; }
+function loop(t){
+  if (!st.running) return;
+  const dt = lastT ? Math.min(0.1, (t - lastT) / 1000) : 0; lastT = t;
+  carry += dt * speed();
+  let n = Math.floor(carry); carry -= n;
+  while (n-- > 0 && stepOne()) {}
+  draw();
+  if (!hasWork()) { setRunning(false); return; }
+  raf = requestAnimationFrame(loop);
+}
+function setRunning(on){
+  st.running = on; lastT = 0; carry = 0;
+  $("b-pause").disabled = !hasWork();
+  $("b-pause").textContent = on ? "Pause" : "Resume";
+  $("b-abort").disabled = !st.status.busy;
+  const lock = !!(st.status.busy || hasWork());
+  ["r-m","r-k","r-n","r-a","r-b","r-c","r-irq","r-preset"].forEach(id => $(id).disabled = lock);
+  document.querySelectorAll("#matrices input").forEach(i => i.disabled = lock);
+  if (on) raf = requestAnimationFrame(loop); else if (raf) cancelAnimationFrame(raf);
+  draw();
+}
+$("b-run").addEventListener("click", () => {
+  if (hasWork() && !st.status.busy) return;
+  if (st.status.busy) {   // START while busy: rejected, job keeps running
+    log(`sw       1, 0x08(a0)   # CTRL.START`, "cpu"); st.status.err = 1; st.errCode = 4; log(`START rejected: ERR_CODE 4 (${ERRTXT[4]}); the running job is unaffected`, "err"); draw(); return;
+  }
+  st.status.err = 0; st.errCode = 0; $("verdict").textContent = "";
+  st.queue = planJob(); setRunning(true);
+});
+$("b-pause").addEventListener("click", () => setRunning(!st.running));
+$("b-step").addEventListener("click", () => {
+  if (!hasWork()) { st.status.err = 0; st.queue = planJob(); }
+  setRunning(false);
+  // step through CPU-side frames quickly, then one accelerator cycle
+  while (hasWork() && (st.queue[0].ph === "CPU") ) stepOne();
+  stepOne(); setRunning(false);
+});
+$("b-phase").addEventListener("click", () => {
+  if (!hasWork()) { st.status.err = 0; st.queue = planJob(); }
+  setRunning(false);
+  const ph = st.queue[0].ph; let guard = 200000;
+  while (hasWork() && st.queue[0].ph === ph && guard--) stepOne();
+  setRunning(false);
+});
+$("b-abort").addEventListener("click", () => {
+  log(`sw       2, 0x08(a0)   # CTRL.ABORT`, "cpu");
+  log(`aborted in ${st.phase} after ${st.cycle} cycles: blocks reset, no DONE`, "err");
+  st.queue = []; st.phase = "IDLE"; st.status.busy = 0; st.tile = null; st.k = null; st.buf = []; st.edges = ["e-bus","e-ctlregs"]; st.blocks = ["cpu","regs","ctrl"];
+  st.cpuState = "aborted"; setRunning(false);
+});
+$("speed").addEventListener("input", () => { $("speed-l").textContent = speed().toLocaleString() + " cyc/s"; });
+["r-m","r-k","r-n"].forEach(id => $(id).addEventListener("change", buildMatrices));
+$("r-preset").addEventListener("change", buildMatrices);
+
+/* ---------------- drawing ---------------- */
+const PHASES = ["IDLE","FETCH_A","FETCH_B","COMPUTE","COPY"];
+function drawFSM(){
+  const g = $("fsm"); if (!g.childNodes.length) {
+    PHASES.forEach((p,i) => {
+      const x = 486 + i*104;
+      g.insertAdjacentHTML("beforeend", `<g class="pill" id="p-${p}"><rect x="${x}" y="98" width="92" height="28" rx="14"/><text x="${x+46}" y="116" text-anchor="middle">${p}</text></g>` + (i < 4 ? `<path d="M${x+93},112 H${x+103}" style="stroke:var(--line);stroke-width:1.5"/>` : ""));
+    });
+    g.insertAdjacentHTML("beforeend", `<text class="bsub" x="486" y="146" id="fsm-note"></text>`);
+  }
+  const order = PHASES.indexOf(st.phase);
+  PHASES.forEach((p,i) => { const el = $("p-" + p); el.classList.toggle("cur", p === st.phase && (p !== "IDLE" || !st.act || !st.status.busy)); el.classList.toggle("done", st.status.busy && i > 0 && i < order); });
+  $("fsm-note").textContent = {IDLE: st.act ? "waiting for START" : "waiting for START", FETCH_A:"fetch unit: A → scratchpad A", FETCH_B:"fetch unit: B → scratchpad B", COMPUTE:"tile sequencer + array → C store", COPY:"copier: C store → RAM at C_ADDR"}[st.phase] || "";
+}
+function drawPEgrid(){
+  const g = $("pegrid"); if (!g.childNodes.length) {
+    for (let r = 0; r < 4; r++) for (let c = 0; c < 4; c++) {
+      const x = 812 + c*45, y = 266 + r*36;
+      g.insertAdjacentHTML("beforeend", `<g class="pe" id="pe-${r}-${c}"><rect x="${x}" y="${y}" width="40" height="31" rx="3"/><text x="${x+20}" y="${y+19}" text-anchor="middle" id="pet-${r}-${c}">PE</text></g>`);
+    }
+  }
+  for (let r = 0; r < 4; r++) for (let c = 0; c < 4; c++) {
+    const on = st.phase === "COMPUTE" && st.k !== null;
+    $("pe-" + r + "-" + c).classList.toggle("hot", on);
+    $("pet-" + r + "-" + c).textContent = st.tile ? compact(st.acc[r*4 + c]) : `${r},${c}`;
+  }
+}
+function compact(v){ const a = Math.abs(v); return a >= 1e6 ? (v/1e6).toFixed(1) + "M" : a >= 1e4 ? Math.round(v/1e3) + "k" : String(v); }
+function drawFetchBuf(){
+  const g = $("fbuf"); if (!g.childNodes.length) {
+    for (let i = 0; i < 8; i++) g.insertAdjacentHTML("beforeend", `<rect id="fb-${i}" x="${244 + i*22}" y="298" width="19" height="19" rx="2" style="stroke:var(--line)" fill="none"/>`);
+    g.insertAdjacentHTML("beforeend", `<text class="bsub" x="244" y="289" id="fb-l">8-byte buffer: 0 / 8</text>`);
+  }
+  const n = st.buf ? st.buf.length : 0, col = st.phase === "FETCH_B" ? css("--b") : css("--a");
+  for (let i = 0; i < 8; i++) $("fb-" + i).setAttribute("fill", i < n ? col : css("--sheet"));
+  $("fb-l").textContent = `8-byte buffer: ${n} / 8 · 1 word/cycle`;
+}
+function drawDiagram(){
+  document.querySelectorAll(".edge").forEach(e => e.classList.toggle("on", !!(st.edges && st.edges.includes(e.id))));
+  const blk = new Set(st.blocks || []);
+  document.querySelectorAll(".blk").forEach(b => {
+    const id = b.dataset.b, on = blk.has(id);
+    b.classList.remove("on","onc","onb");
+    if (on) b.classList.add(id === "ctrl" || id === "regs" ? (id === "regs" && (st.kind === "reg" || st.kind === "start") ? "onb" : "onc") : id === "cpu" ? "onb" : "on");
+  });
+  drawFSM(); drawPEgrid(); drawFetchBuf();
+  $("ctrl-cyc").textContent = `cycle ${st.cycle.toLocaleString()}`;
+  $("regs-status").textContent = `STATUS ${st.status.err ? "E" : "-"}${st.status.done ? "D" : "-"}-${st.status.busy ? "B" : "-"}`;
+  $("regs-err").textContent = `ERR_CODE ${st.errCode}${st.errCode ? " · " + ERRSHORT[st.errCode] : ""}`;
+  $("cpu-state").textContent = st.cpuState;
+  $("seq-tile").textContent = st.tile ? `(${st.tile.gi}, ${st.tile.gj})` : "—";
+  $("seq-k").textContent = st.phase === "COMPUTE" ? (st.k !== null ? `${st.k} of 0..${st.act.K - 1}` : "empty / drain") : "—";
+  $("seq-p").textContent = st.act ? String(Math.max(st.act.K, 4)) : "—";
+  $("mux-sel").textContent = st.phase === "COPY" ? "→ C copier" : "→ fetch unit";
+  if (st.lastAccess) {
+    $("ram-op").textContent = `${st.lastAccess.by} ${st.lastAccess.op}`;
+    $("ram-op2").textContent = `word ${hex(st.lastAccess.addr)} (byte ${hex(st.lastAccess.addr*4)})`;
+  }
+  const W = 143 / RAM_BYTES;
+  if (st.act) {
+    const j = st.act;
+    const set = (id, a, len) => { $(id).setAttribute("x", 32 + a*W); $(id).setAttribute("width", Math.max(2, len*W)); };
+    set("ram-a", j.A, j.M*j.K); set("ram-b", j.B, j.K*j.N); set("ram-c", j.C, 4*j.M*j.N);
+  }
+}
+function drawTimeline(){
+  const tl = $("timeline"), p = st.plan;
+  tl.querySelectorAll(".seg").forEach(s => s.remove());
+  const cur = $("tl-cursor");
+  if (!p) { $("tl-legend").innerHTML = `<span>Press START to see the phases.</span>`; cur.style.left = "0"; return; }
+  const total = p.fa + p.fb + p.cp + p.cy;
+  [["fa","FETCH_A",p.fa],["fb","FETCH_B",p.fb],["cp","COMPUTE",p.cp],["cy","COPY",p.cy]].forEach(([c,n,v]) => {
+    const d = document.createElement("div"); d.className = "seg " + c; d.style.width = (100*v/total) + "%"; d.textContent = v/total > .1 ? n : ""; d.title = `${n}: ${v} cycles`; tl.insertBefore(d, cur);
+  });
+  cur.style.left = `calc(${Math.min(100, 100*st.cycle/total)}% - 1px)`;
+  $("tl-legend").innerHTML = `<div>FETCH_A <b>${p.fa}</b></div><div>FETCH_B <b>${p.fb}</b></div><div>COMPUTE <b>${p.cp}</b></div><div>COPY <b>${p.cy}</b></div><div>total <b>${total.toLocaleString()}</b> cycles</div>`;
+}
+function drawStatus(){
+  $("statusrow").innerHTML = [["BUSY",st.status.busy,""],["DONE",st.status.done,"ok"],["ERROR",st.status.err,"bad"],["irq",st.act && st.act.irq && st.status.done,""]]
+    .map(([n,v,c]) => `<span class="chip ${v ? "lit " + c : ""}">${n}</span>`).join("");
+  const j = st.act;
+  $("kv").innerHTML = `<div><span>ERR_CODE</span> ${st.errCode}</div><div><span>JOBS_DONE</span> ${st.jobs}</div><div><span>FETCH_CYCLES</span> ${st.fetchCyc}</div><div><span>COMPUTE_CYCLES</span> ${st.compCyc}</div>` +
+    (j ? `<div><span>ACTIVE M·K·N</span> ${j.M}·${j.K}·${j.N}</div><div><span>A / B / C</span> ${hex(j.A)} ${hex(j.B)} ${hex(j.C)}</div>` : "");
+}
+function sizeCanvas(cv, rows, cols, maxCell){
+  const wrap = cv.parentElement.clientWidth - 30;
+  const cell = Math.max(3, Math.min(maxCell, Math.floor(wrap / Math.max(cols, 1))));
+  const dpr = window.devicePixelRatio || 1;
+  const w = cell*cols, h = cell*rows;
+  if (cv._w !== w || cv._h !== h || cv._d !== dpr) { cv.width = w*dpr; cv.height = h*dpr; cv.style.width = w + "px"; cv.style.height = h + "px"; cv._w = w; cv._h = h; cv._d = dpr; }
+  const ctx = cv.getContext("2d"); ctx.setTransform(dpr,0,0,dpr,0,0); return {ctx, cell};
+}
+function grid(cv, rows, cols, fn, maxCell = 26){
+  const {ctx, cell} = sizeCanvas(cv, rows, cols, maxCell);
+  const sheet = css("--sheet"), line = css("--line"), ink = css("--ink"), panel = css("--panel");
+  ctx.fillStyle = sheet; ctx.fillRect(0, 0, cols*cell, rows*cell);
+  ctx.font = `${Math.max(8, Math.floor(cell*0.38))}px ${getComputedStyle(document.body).getPropertyValue("--f-mono") || "monospace"}`;
+  ctx.textAlign = "center"; ctx.textBaseline = "middle";
+  for (let r = 0; r < rows; r++) for (let c = 0; c < cols; c++) {
+    const o = fn(r, c); if (!o) continue;
+    ctx.fillStyle = o.fill; ctx.fillRect(c*cell, r*cell, cell, cell);
+    if (o.hatch) { ctx.strokeStyle = panel; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(c*cell, (r+1)*cell); ctx.lineTo((c+1)*cell, r*cell); ctx.stroke(); }
+    if (o.text !== undefined && cell >= 22) { ctx.fillStyle = o.ink || ink; ctx.fillText(o.text, c*cell + cell/2, r*cell + cell/2 + 1); }
+  }
+  if (cell >= 6) { ctx.strokeStyle = line; ctx.lineWidth = 0.5; ctx.beginPath(); for (let r = 0; r <= rows; r++) { ctx.moveTo(0, r*cell); ctx.lineTo(cols*cell, r*cell); } for (let c = 0; c <= cols; c++) { ctx.moveTo(c*cell, 0); ctx.lineTo(c*cell, rows*cell); } ctx.stroke(); }
+  return cell;
+}
+function drawMems(){
+  const j = st.act || {M:clampD(num("r-m")), K:clampD(num("r-k")), N:clampD(num("r-n"))};
+  const Mp = Math.ceil(j.M/4)*4, Np = Math.ceil(j.N/4)*4, Kw = Math.ceil(j.K/4)*4;
+  const cA = css("--a"), cB = css("--b"), cC = css("--c"), stale = css("--stale"), dat = css("--data"), pad = css("--pad"), panel = css("--panel");
+  // Scratchpad A: Mp rows x Kw columns (padding rows show stale/never data)
+  grid($("cv-spa"), Mp, Kw, (r, c) => {
+    const i = r*MAXD + c, w = st.spAw[i];
+    const reading = st.readA && r >= 4*st.readA.gi && r < 4*st.readA.gi + 4 && c === st.readA.k;
+    if (reading) return {fill:dat, text:st.spA[i], ink:panel};
+    if (w === 2) return {fill:cA, text:st.spA[i], ink:panel, hatch: r >= j.M || c >= j.K};
+    if (w === 1) return {fill:stale, text:st.spA[i]};
+    return null;
+  });
+  $("spa-sub").textContent = `${j.M} × ${j.K}, shown padded to ${Mp} rows (rows ${j.M}…${Mp-1} keep old data). Bank = row mod 4.`;
+  grid($("cv-spb"), j.K, Np, (r, c) => {
+    const i = r*MAXD + c, w = st.spBw[i];
+    const reading = st.readB && r === st.readB.k && c >= 4*st.readB.gj && c < 4*st.readB.gj + 4;
+    if (reading) return {fill:dat, text:st.spB[i], ink:panel};
+    if (w === 2) return {fill:cB, text:st.spB[i], ink:panel, hatch: c >= j.N};
+    if (w === 1) return {fill:stale, text:st.spB[i]};
+    return null;
+  });
+  $("spb-sub").textContent = `${j.K} × ${j.N}, padded to ${Np} columns; zero-filled lanes are hatched`;
+  grid($("cv-cs"), Mp, Np, (r, c) => {
+    const i = r*MAXD + c, w = st.csw[i];
+    if (st.readCS && st.readCS.r === r && st.readCS.c === c) return {fill:dat, text:compact(st.cs[i]), ink:panel};
+    if (w === 2) return (r >= j.M || c >= j.N) ? {fill:pad, hatch:true, text:compact(st.cs[i]), ink:panel} : {fill:cC, text:compact(st.cs[i]), ink:panel};
+    if (w === 1) return {fill:stale};
+    return null;
+  }, 30);
+  $("cs-sub").textContent = `${Mp} × ${Np} padded result, ${Math.ceil(j.M/4)*Math.ceil(j.N/4)} tiles`;
+  grid($("cv-cr"), j.M, j.N, (r, c) => {
+    const i = r*j.N + c;
+    if (st.crw[i]) return {fill:cC, text:compact(st.crv[i]), ink:panel};
+    return null;
+  }, 34);
+  $("cr-sub").textContent = st.act ? `${j.M} × ${j.N} words at ${hex(st.act.C)}…${hex(st.act.C + 4*j.M*j.N - 1)}` : "M × N, 32-bit words from C_ADDR";
+  // PE accumulators
+  const pes = $("pes"); let h = "";
+  for (let r = 0; r < 4; r++) for (let c = 0; c < 4; c++) {
+    const R = st.tile ? 4*st.tile.gi + r : r, C = st.tile ? 4*st.tile.gj + c : c;
+    const padCell = st.act && (R >= st.act.M || C >= st.act.N);
+    h += `<div class="${padCell ? "pad" : ""}"><small>C[${R}][${C}]</small>${st.tile ? st.acc[r*4 + c] : "·"}</div>`;
+  }
+  pes.innerHTML = h;
+  $("pe-sub").textContent = st.tile ? `Tile (${st.tile.gi}, ${st.tile.gj}), step k = ${st.k === null ? "—" : st.k}${st.act ? "; dashed cells are padding" : ""}` : "No tile running";
+  // hex window
+  const hx = $("hex");
+  if (st.lastAccess) {
+    const a0 = Math.max(0, st.lastAccess.addr - 3); let s = "";
+    for (let a = a0; a < Math.min(RAM_BYTES/4, a0 + 8); a++) {
+      const v = st.ram[a*4] | (st.ram[a*4+1] << 8) | (st.ram[a*4+2] << 16) | (st.ram[a*4+3] << 24);
+      const hl = a === st.lastAccess.addr ? "hl" : "";
+      s += `<span class="${hl}">${hex(a)}</span><span class="${hl}">${(v>>>0).toString(16).padStart(8,"0")}</span><span class="${hl}">${hl ? (st.lastAccess.op === "read" ? "← read by fetch unit" : "← written by copier") : ""}</span>`;
+    }
+    hx.innerHTML = s;
+  } else hx.innerHTML = `<span class="note" style="grid-column:1/-1">No port B access yet.</span>`;
+}
+function showBlock(id){
+  const b = BLOCKS[id]; if (!b) return;
+  document.querySelectorAll(".blk").forEach(x => x.classList.toggle("sel", x.dataset.b === id));
+  $("blockinfo").innerHTML = `<h3>${b.name}</h3><div class="file">${b.file}</div><p>${b.text}</p><ul>${b.ports.map(p => `<li>${p}</li>`).join("")}</ul><p class="note">Click any block in the diagram to read about it.</p>`;
+}
+document.querySelectorAll(".blk").forEach(b => { b.setAttribute("tabindex", "0"); b.addEventListener("click", () => showBlock(b.dataset.b)); b.addEventListener("keydown", e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); showBlock(b.dataset.b); } }); });
+function draw(){ drawDiagram(); drawTimeline(); drawStatus(); drawMems(); }
+
+/* ---------------- init ---------------- */
+$("speed-l").textContent = speed().toLocaleString() + " cyc/s";
+buildMatrices();
+showBlock("ctrl");
+// Open in a realistic state: the worked example already fetched and halfway through compute.
+st.queue = planJob();
+let guard = 100000;
+while (hasWork() && guard--) { const q0 = st.queue[0]; if (q0.ph === "COMPUTE" && q0.kind === "slot" && q0.gi === 1 && q0.gj === 0 && q0.s === 2) break; stepOne(); }
+setRunning(false);
+log("Paused partway through the worked example. Press Resume, Step 1 cycle or Next phase.", "ok");
+window.addEventListener("resize", draw);
+try { matchMedia("(prefers-color-scheme: dark)").addEventListener("change", draw); } catch (e) {}
+new MutationObserver(draw).observe(document.documentElement, {attributes:true, attributeFilter:["data-theme"]});
+draw();
+})();
+</script>
+
+</body>
+</html>

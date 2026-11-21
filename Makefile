@@ -51,6 +51,11 @@ summary:
 wave:
 	@$(RUNNER) wave --module "$(MOD)" --gtkwave "$(GTKWAVE)"
 
+# Standalone accelerator block-diagram viewer (no server needed).
+.PHONY: view-accel
+view-accel:
+	@xdg-open visualizer/accelerator.html >/dev/null 2>&1 || echo "Open visualizer/accelerator.html in a browser"
+
 visualize:
 	@YOSYS="$(YOSYS)" $(PYTHON) visualizer/server.py
 
@@ -172,6 +177,7 @@ help:
 	@echo 'make wave MOD=half_adder  Open a generated VCD (GTKWave required)'
 	@echo 'make summary             Display the most recent test report'
 	@echo 'make visualize           Open the local RTL interface and hierarchy viewer'
+	@echo 'make view-accel          Open the accelerator block-diagram viewer in a browser'
 	@echo 'make visualize-setup     Install local ELK layout and portable Yosys dependencies'
 	@echo 'make synth               Synthesize each block for Xilinx 7-series (Yosys)'
 	@echo 'make test-tooling         Verify the runner and Python golden model'
