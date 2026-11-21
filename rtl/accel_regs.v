@@ -15,6 +15,13 @@
 //   5 A, B or C extends past the end of the data RAM.
 // ABORT wins over START in the same write. An accepted START clears DONE.
 //
+// Timing: the START write is checked on the following clock (start_req), so
+// the M*K, K*N and M*N products come from registers instead of being
+// computed in the same cycle as the add and compare. The staging registers
+// cannot change between the START write and its check (one write per
+// cycle), so the registered products always match. busy includes a pending
+// START, and an ABORT cancels it.
+//
 // irq = STATUS.DONE & IRQ_EN[0], a level. The CPU clears it by writing 1 to
 // STATUS bit 2 (DONE); a DONE set in the same cycle wins over the clear.
 module accel_regs #(
@@ -64,18 +71,29 @@ module accel_regs #(
 
     wire [5:0] reg_index = bus_addr[7:2];
     wire wr = bus_valid && bus_write;
-    wire busy_now = ctrl_busy || job_start;
 
-    // START checks on the staging set.
+    // A START write waiting for its check on the next clock, and whether
+    // the accelerator was busy when it was written.
+    reg start_req;
+    reg start_req_busy;
+    wire busy_now = ctrl_busy || job_start || start_req;
+
+    // Products of the staging dimensions, one clock behind the staging set.
+    reg [2*DIM_W+1:0] a_bytes, b_bytes;
+    reg [2*DIM_W+3:0] c_bytes;
+    always @(posedge clk) begin
+        a_bytes <= m_s[DIM_W:0] * k_s[DIM_W:0];
+        b_bytes <= k_s[DIM_W:0] * n_s[DIM_W:0];
+        c_bytes <= {m_s[DIM_W:0] * n_s[DIM_W:0], 2'b00};
+    end
+
+    // START checks on the staging set, evaluated while start_req is set.
     wire dim_ok = (m_s >= 1) && (m_s <= MAX_DIM) && (n_s >= 1) && (n_s <= MAX_DIM)
                && (k_s >= 1) && (k_s <= MAX_DIM);
-    wire [2*DIM_W+1:0] a_bytes = m_s[DIM_W:0] * k_s[DIM_W:0];
-    wire [2*DIM_W+1:0] b_bytes = k_s[DIM_W:0] * n_s[DIM_W:0];
-    wire [2*DIM_W+3:0] c_bytes = {m_s[DIM_W:0] * n_s[DIM_W:0], 2'b00};
     wire range_ok = ({1'b0, a_s} + a_bytes <= RAM_BYTES)
                  && ({1'b0, b_s} + b_bytes <= RAM_BYTES)
                  && ({1'b0, c_s} + c_bytes <= RAM_BYTES);
-    wire [3:0] start_err = busy_now      ? 4'd4 :
+    wire [3:0] start_err = start_req_busy ? 4'd4 :
                            !dim_ok       ? 4'd1 :
                            (c_s[1:0] != 2'b00) ? 4'd2 :
                            !range_ok     ? 4'd5 : 4'd0;
@@ -112,11 +130,32 @@ module accel_regs #(
             jobs_done <= 32'd0;
             job_start <= 1'b0;
             abort <= 1'b0;
+            start_req <= 1'b0;
+            start_req_busy <= 1'b0;
             act_m <= 0; act_n <= 0; act_k <= 0;
             act_a_addr <= 0; act_b_addr <= 0; act_c_addr <= 0;
         end else begin
             job_start <= 1'b0;
             abort <= 1'b0;
+            start_req <= 1'b0;
+
+            // Check the START written on the previous clock.
+            if (start_req) begin
+                if (start_err != 4'd0) begin
+                    err_bit <= 1'b1;
+                    err_code <= start_err;
+                end else begin
+                    job_start <= 1'b1;
+                    done_bit <= 1'b0;
+                    act_m <= m_s[DIM_W:0];
+                    act_n <= n_s[DIM_W:0];
+                    act_k <= k_s[DIM_W:0];
+                    act_a_addr <= a_s[RAM_ADDR_W+1:0];
+                    act_b_addr <= b_s[RAM_ADDR_W+1:0];
+                    act_c_addr <= c_s[RAM_ADDR_W+1:0];
+                end
+            end
+
             if (wr) begin
                 case (reg_index)
                     R_M:   m_s <= bus_wdata;
@@ -132,21 +171,12 @@ module accel_regs #(
                     end
                     R_CTRL: begin
                         if (bus_wdata[1]) begin
+                            // ABORT also cancels a START still being checked.
                             abort <= 1'b1;
+                            job_start <= 1'b0;
                         end else if (bus_wdata[0]) begin
-                            if (start_err != 4'd0) begin
-                                err_bit <= 1'b1;
-                                err_code <= start_err;
-                            end else begin
-                                job_start <= 1'b1;
-                                done_bit <= 1'b0;
-                                act_m <= m_s[DIM_W:0];
-                                act_n <= n_s[DIM_W:0];
-                                act_k <= k_s[DIM_W:0];
-                                act_a_addr <= a_s[RAM_ADDR_W+1:0];
-                                act_b_addr <= b_s[RAM_ADDR_W+1:0];
-                                act_c_addr <= c_s[RAM_ADDR_W+1:0];
-                            end
+                            start_req <= 1'b1;
+                            start_req_busy <= busy_now;
                         end
                     end
                     default: ;
