@@ -85,12 +85,16 @@ while {$i < [llength $words]} {
             puts "    \[$row \]"
         }
     } elseif {($tag >> 24) == 0xD0} {
-        lassign [lrange $words $i [expr {$i + 6}]] m k n sw acc fetch comp
-        incr i 7
+        set count [expr {$tag & 0xFF}]
+        lassign [lrange $words $i [expr {$i + $count - 1}]] m k n sw acc fetch comp instr
+        incr i $count
         puts "\nbenchmark  ${m}x${k}x${n}"
         puts "    software (CPU only) : $sw cycles"
         puts "    accelerator         : $acc cycles  (fetch $fetch, compute $comp)"
-        puts [format "    speed-up            : %.1fx" [expr {double($sw) / $acc}]]
+        if {$instr ne ""} {
+            puts [format "    CPU                 : %d instructions, CPI %.2f" $instr [expr {double($sw) / $instr}]]
+        }
+        if {$acc} { puts [format "    speed-up            : %.1fx" [expr {double($sw) / $acc}]] }
     } else {
         puts [format "\nfinal result word 0x%08X -> %s" $tag [expr {$tag == 1 ? "PASS" : "FAIL"}]]
     }

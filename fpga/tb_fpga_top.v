@@ -54,7 +54,7 @@ module tb_fpga_top;
 
     // ---------------------------------------------------------------- protocol
     reg [31:0] tag, rows, cols, w;
-    reg [31:0] bench [0:6];
+    reg [31:0] bench [0:7];
     integer r, col, i, words, last;
     reg signed [7:0] e8;
 
@@ -93,14 +93,19 @@ module tb_fpga_top;
                     end
                 end
             end else if (tag[31:24] == 8'hD0) begin
-                for (i = 0; i < 7; i = i + 1)
+                bench[7] = 0;
+                for (i = 0; i < tag[7:0] && i < 8; i = i + 1)   // word count in the tag
                     get_word(bench[i]);
                 $display("\n[%t] benchmark  %0dx%0dx%0d", $time, bench[0], bench[1], bench[2]);
                 $display("    software (CPU only) : %0d cycles", bench[3]);
                 $display("    accelerator         : %0d cycles  (fetch %0d, compute %0d)",
                          bench[4], bench[5], bench[6]);
-                $display("    speed-up            : %0d.%0dx", bench[3] / bench[4],
-                         (bench[3] * 10 / bench[4]) % 10);
+                if (bench[7] != 0)
+                    $display("    CPU                 : %0d instructions, CPI %0d.%02d", bench[7],
+                             bench[3] / bench[7], (bench[3] * 100 / bench[7]) % 100);
+                if (bench[4] != 0)
+                    $display("    speed-up            : %0d.%0dx", bench[3] / bench[4],
+                             (bench[3] * 10 / bench[4]) % 10);
             end else begin
                 $display("\n[%t] final result word 0x%08h -> %s   (LEDs = %b)", $time, tag,
                          tag == 32'd1 ? "PASS" : "FAIL", led);

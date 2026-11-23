@@ -48,7 +48,8 @@ def decode(words):
                 i += n
             res["mats"][{0xA1: "A", 0xB1: "B", 0xC4: "C"}[kind]] = (rows, cols, vals)
         elif t >> 24 == 0xD0:
-            res["bench"] = words[i:i + 7]; i += 7
+            count = t & 0xFF                     # 7 (old firmware) or 8 (+ instructions)
+            res["bench"] = words[i:i + count]; i += count
         else:
             res["final"] = t
     return res
@@ -109,12 +110,18 @@ def main(path):
                 problems.append("matrices missing")
         if span > ILA_WINDOW:
             problems.append(f"report burst spans {span} clocks > ILA window {ILA_WINDOW}")
-        b = r.get("bench") or [0] * 7
+        b = (r.get("bench") or []) + [0] * 8
         speed = f"{b[3] / b[4]:.1f}x" if b[4] else "-"
+        instr = b[7]
+        if not bad and not instr:
+            problems.append("no instruction count in the benchmark row")
+        elif instr and not 1.0 < b[3] / instr < 10.0:
+            problems.append(f"CPI {b[3] / instr:.2f} outside 1..10")
+        cpu = f", {instr} instr, CPI {b[3] / instr:.2f}, {b[3] / (m * k * n):.1f} cyc/MAC" if instr else ""
         status = "ok" if not problems else "FAIL: " + "; ".join(problems)
         print(f"job {j}: {m}x{k}x{n} {'matrix' if mat else 'seed ' + str(cfg['seed'])}: "
               f"final {r.get('final', 0):08X}, sw {b[3]}, accel {b[4]} (fetch {b[5]}, compute {b[6]}), "
-              f"{speed}, burst {span} clk -> {status}")
+              f"{speed}{cpu}, burst {span} clk -> {status}")
         failures += bool(problems)
     for j in sorted(monitors):
         print(monitors[j])

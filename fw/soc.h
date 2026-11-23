@@ -39,4 +39,12 @@ static inline uint32_t rdcycle(void)
     return cycles;
 }
 
+// Instructions retired so far (PicoRV32 ENABLE_COUNTERS).
+static inline uint32_t rdinstret(void)
+{
+    uint32_t count;
+    __asm__ volatile ("rdinstret %0" : "=r"(count));
+    return count;
+}
+
 #endif

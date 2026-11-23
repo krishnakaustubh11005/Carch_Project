@@ -179,7 +179,9 @@ proc carch_words {csv} {
 proc carch_s8  {x} { expr {$x >= 0x80 ? $x - 0x100 : $x} }
 proc carch_s32 {x} { expr {$x >= 0x80000000 ? $x - 0x100000000 : $x} }
 
-# Words -> dict: A/B/C {rows cols values}, bench {m k n sw accel fetch compute}, final.
+# Words -> dict: A/B/C {rows cols values},
+# bench {m k n sw accel fetch compute ?sw_instructions?}, final.
+# The bench tag's low byte is its word count (7 in older firmware, 8 now).
 proc carch_decode {words} {
     set r [dict create]
     set i 0
@@ -207,8 +209,9 @@ proc carch_decode {words} {
             }
             dict set r $name [list $rows $cols $vals]
         } elseif {($tag >> 24) == 0xD0} {
-            dict set r bench [lrange $words $i [expr {$i + 6}]]
-            incr i 7
+            set count [expr {$tag & 0xFF}]
+            dict set r bench [lrange $words $i [expr {$i + $count - 1}]]
+            incr i $count
         } else {
             dict set r final $tag
         }
@@ -266,15 +269,23 @@ proc carch_run {label m k n data seed} {
         set verdict "PASS (baseline)"
     }
     set row [list $carch(job) [clock format [clock seconds] -format {%Y-%m-%d %H:%M:%S}] \
-                 $m $k $n $data $seed {} {} {} {} {} $verdict]
+                 $m $k $n $data $seed {} {} {} {} {} $verdict {} {} {} {}]
     if {[dict exists $r bench]} {
-        lassign [dict get $r bench] bm bk bn sw acc fetch comp
+        lassign [dict get $r bench] bm bk bn sw acc fetch comp instr
         set speed [expr {$acc ? double($sw) / $acc : 0}]
         set width 40
         set bar_acc [expr {max(1, int(round($width * double($acc) / max($sw, $acc))))}]
         set bar_sw  [expr {max(1, int(round($width * double($sw) / max($sw, $acc))))}]
         puts [format "  software     %-40s %10d cycles %10.1f us" \
                   [string repeat # $bar_sw] $sw [expr {$sw / double($carch(mhz))}]]
+        if {$instr ne "" && $instr > 0} {
+            set macs [expr {$m * $k * $n}]
+            set cpi [expr {double($sw) / $instr}]
+            puts [format "  CPU          %d instructions, CPI %.2f, %.1f cycles and %.1f instructions per MAC" \
+                      $instr $cpi [expr {double($sw) / $macs}] [expr {double($instr) / $macs}]]
+            set row [lreplace $row 13 16 $instr [format %.3f $cpi] \
+                         [format %.2f [expr {double($sw) / $macs}]] [format %.2f [expr {double($instr) / $macs}]]]
+        }
         if {$acc} {
             puts [format "  accelerator  %-40s %10d cycles %10.1f us   (fetch %d, compute %d)" \
                       [string repeat # $bar_acc] $acc [expr {$acc / double($carch(mhz))}] $fetch $comp]
@@ -298,10 +309,19 @@ proc carch_run {label m k n data seed} {
 
 proc carch_csv {row} {
     set path $::carch(out)/results.csv
+    set header "job,time,m,k,n,data,seed,sw_cycles,accel_cycles,fetch_cycles,compute_cycles,speedup,result,sw_instructions,sw_cpi,sw_cycles_per_mac,sw_instructions_per_mac"
+    if {[file exists $path]} {
+        set fh [open $path]; gets $fh old; close $fh
+        if {$old ne $header} {
+            # Older file without the CPU columns: keep it, start a new one.
+            file rename -force $path [file rootname $path]_old.csv
+            puts "  (older results.csv kept as [file tail [file rootname $path]]_old.csv)"
+        }
+    }
     set new [expr {![file exists $path]}]
     set fh [open $path a]
     if {$new} {
-        puts $fh "job,time,m,k,n,data,seed,sw_cycles,accel_cycles,fetch_cycles,compute_cycles,speedup,result"
+        puts $fh $header
     }
     puts $fh [join $row ","]
     close $fh

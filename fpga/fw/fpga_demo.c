@@ -16,7 +16,9 @@
 //   0xCA0000A1 rows cols  packed int8 words   matrix A  } only when
 //   0xCA0000B1 rows cols  packed int8 words   matrix B  } M, K, N <= 8
 //   0xCA0000C4 rows cols  int32 words         matrix C  }
-//   0xD0000007 m k n sw_cycles accel_cycles fetch compute   benchmark row
+//   0xD0000008 m k n sw_cycles accel_cycles fetch compute sw_instructions
+//                                                       benchmark row (the low
+//                                                       byte is the word count)
 //   final word (written by start.S): 1 = PASS, 0xFttt_iidd = FAIL
 //     test 1 accelerator ID wrong, test 2 START rejected (detail = ERR),
 //     test 3 C mismatch (index = first wrong element, low 8 bits),
@@ -128,6 +130,7 @@ int main(void)
     // The same C = A x B on the CPU (RV32IM, hardware multiplier). Each result
     // is stored, as the accelerator stores each C value.
     BARRIER();
+    uint32_t i0 = rdinstret();
     t0 = rdcycle();
     for (uint32_t i = 0; i < m; i++)
         for (uint32_t j = 0; j < n; j++) {
@@ -137,6 +140,7 @@ int main(void)
             SW_ROW[j] = sum;
         }
     uint32_t sw_cycles = rdcycle() - t0;
+    uint32_t sw_instructions = rdinstret() - i0;   // CPI = sw_cycles / sw_instructions
 
     // ---------------------------------------------------------------- check (untimed)
     // Baseline: there is no accelerator C to check; store the CPU's C instead.
@@ -160,9 +164,10 @@ int main(void)
         send_matrix(TAG_I8(0xB1), RAM_B, k, n, (k * n + 3) / 4);
         send_matrix(TAG_I8(0xC4), RAM_C, m, n, m * n);
     }
-    report(RESULT_BENCH(7));
+    report(RESULT_BENCH(8));
     report(m); report(k); report(n);
     report(sw_cycles); report(accel_cycles);
     report(fetch_cycles); report(compute_cycles);
+    report(sw_instructions);
     return verdict;                         // start.S writes it to the result port
 }
