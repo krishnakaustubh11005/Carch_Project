@@ -1,0 +1,408 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Carch Program Runner</title>
+<style>
+:root {
+  --bg: #f6f7f9; --panel: #ffffff; --text: #1d2430; --muted: #5d6878; --line: #dde2ea;
+  --accent: #2f6fdf; --accent-text: #ffffff; --cpu: #8a94a6; --acc: #2f6fdf;
+  --good: #1f8a4c; --bad: #c4372c; --warn: #b26b00; --code-bg: #fbfcfd; --gutter: #eef1f5; --hot: #fff3cf;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #12161d; --panel: #1a2029; --text: #e3e8ef; --muted: #98a3b3; --line: #2c3542;
+    --accent: #5b8ff0; --accent-text: #0d1117; --cpu: #7d889a; --acc: #5b8ff0;
+    --good: #4cc27f; --bad: #ef6a5e; --warn: #e0a440; --code-bg: #151a22; --gutter: #1e252f; --hot: #3a3216;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #12161d; --panel: #1a2029; --text: #e3e8ef; --muted: #98a3b3; --line: #2c3542;
+  --accent: #5b8ff0; --accent-text: #0d1117; --cpu: #7d889a; --acc: #5b8ff0;
+  --good: #4cc27f; --bad: #ef6a5e; --warn: #e0a440; --code-bg: #151a22; --gutter: #1e252f; --hot: #3a3216;
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--text);
+  font: 14px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+header { display: flex; align-items: baseline; gap: 12px; padding: 14px 20px; border-bottom: 1px solid var(--line); background: var(--panel); flex-wrap: wrap; }
+header h1 { font-size: 18px; margin: 0; }
+header .sub { color: var(--muted); font-size: 13px; }
+header .theme { margin-left: auto; }
+main { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 16px; padding: 16px 20px; }
+@media (max-width: 1000px) { main { grid-template-columns: 1fr; padding: 12px 16px; } }
+.panel { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 14px; min-width: 0; }
+.panel h2 { font-size: 14px; margin: 0 0 10px; }
+.row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+select, input, button { font: inherit; color: var(--text); background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 6px 10px; }
+button { cursor: pointer; }
+button.primary { background: var(--accent); color: var(--accent-text); border-color: var(--accent); font-weight: 600; }
+button:disabled { opacity: .5; cursor: default; }
+.editor { display: flex; border: 1px solid var(--line); border-radius: 6px; overflow: hidden; margin: 10px 0; height: calc(100vh - 290px); min-height: 360px; background: var(--code-bg); }
+.gutter { background: var(--gutter); color: var(--muted); text-align: right; padding: 10px 8px; overflow: hidden; user-select: none; white-space: pre; }
+.editor textarea, .gutter { font: 13px/1.5 ui-monospace, "Cascadia Code", Consolas, monospace; }
+.editor textarea { flex: 1; border: 0; resize: none; padding: 10px; background: transparent; color: var(--text); outline: none; white-space: pre; overflow: auto; tab-size: 4; }
+.hint { color: var(--muted); font-size: 12px; }
+.log { font: 12px/1.45 ui-monospace, Consolas, monospace; background: var(--code-bg); border: 1px solid var(--line); border-radius: 6px; padding: 8px; max-height: 190px; overflow: auto; white-space: pre-wrap; word-break: break-word; }
+.log .err { color: var(--bad); }
+.status { font-weight: 600; margin-bottom: 6px; }
+.hero { display: flex; gap: 24px; align-items: baseline; flex-wrap: wrap; margin: 14px 0 6px; }
+.hero .big { font-size: 34px; font-weight: 700; }
+.hero .lab { color: var(--muted); font-size: 12px; }
+.badge { display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 12px; font-weight: 600; border: 1px solid currentColor; }
+.good { color: var(--good); } .bad { color: var(--bad); } .warn { color: var(--warn); }
+table { border-collapse: collapse; width: 100%; font-size: 13px; }
+th, td { padding: 5px 8px; border-bottom: 1px solid var(--line); text-align: right; white-space: nowrap; }
+th:first-child, td:first-child { text-align: left; white-space: normal; }
+th { color: var(--muted); font-weight: 600; }
+.tablewrap { overflow-x: auto; }
+h3 { font-size: 13px; margin: 18px 0 6px; }
+.bars { display: grid; grid-template-columns: 130px minmax(0, 1fr); gap: 6px 10px; align-items: center; font-size: 12px; }
+.bar { height: 18px; display: flex; border-radius: 3px; overflow: hidden; background: var(--gutter); }
+.bar span { display: block; height: 100%; }
+.legend { display: flex; gap: 14px; font-size: 12px; color: var(--muted); margin-top: 6px; flex-wrap: wrap; }
+.sw { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 4px; vertical-align: -1px; }
+.runs { max-height: 180px; overflow: auto; }
+.runs div { padding: 4px 6px; border-radius: 4px; cursor: pointer; display: flex; gap: 8px; font-size: 12px; }
+.runs div:hover { background: var(--gutter); }
+.runs .t { color: var(--muted); white-space: nowrap; }
+.runs .n { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; }
+.empty { color: var(--muted); padding: 20px 0; }
+details summary { cursor: pointer; color: var(--muted); font-size: 12px; }
+.asmgrid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 12px; }
+@media (max-width: 1400px) { .asmgrid { grid-template-columns: 1fr; } }
+.asmbox { border: 1px solid var(--line); border-radius: 6px; overflow: hidden; min-width: 0; }
+.asmbox .hd { padding: 8px 10px; background: var(--gutter); font-size: 12px; }
+.asmbox .hd b { font-size: 13px; }
+.asmscroll { max-height: 420px; overflow: auto; background: var(--code-bg); }
+.asm { font: 12px/1.5 ui-monospace, Consolas, monospace; border-collapse: collapse; width: 100%; }
+.asm td { border: 0; padding: 1px 8px; text-align: left; white-space: nowrap; }
+.asm td.ad { color: var(--muted); }
+.asm td.op { font-weight: 600; }
+.asm td.nt { color: var(--muted); font-family: system-ui, sans-serif; white-space: normal; min-width: 180px; }
+.asm tr.hot td { background: var(--hot); }
+.asm tr.accel td.op, .asm tr.accel td.ar { color: var(--accent); }
+.asm tr.meta td { opacity: .55; }
+.asmlegend { display: flex; gap: 14px; flex-wrap: wrap; font-size: 12px; color: var(--muted); margin: 6px 0; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Carch Program Runner</h1>
+  <span class="sub">Your C on PicoRV32 · CPU-only vs CPU + 4×4 accelerator · PYNQ-Z2 @ 50 MHz</span>
+  <button class="theme" id="theme" title="Switch light / dark">◐</button>
+</header>
+<main>
+  <section class="panel">
+    <div class="row">
+      <select id="examples"><option value="">Load an example…</option></select>
+      <span class="hint">Write <code>uint32_t job(void)</code>; call <code>matmul()</code> to use the accelerator.</span>
+    </div>
+    <div class="editor">
+      <div class="gutter" id="gutter">1</div>
+      <textarea id="code" spellcheck="false" autocomplete="off"></textarea>
+    </div>
+    <div class="row">
+      <button class="primary" id="sim">Simulate</button>
+      <button class="primary" id="board">Run on FPGA</button>
+      <label class="hint">sim limit <input id="maxc" type="number" value="3000000" step="500000" min="10000" style="width:110px"> clocks</label>
+    </div>
+    <p class="hint">Simulate: Icarus, no board, about 1 min per million clocks. Run on FPGA: puts the program into both
+      bitstreams (no rebuild), programs the PYNQ-Z2 and runs each, about 1–2 min. Close the hardware target in the
+      Vivado GUI first. API: <code>matmul</code>, <code>matmul_cpu</code>, <code>print_value</code>,
+      <code>region_begin/end</code>, <code>rand_i8</code>, <code>checksum</code>, <code>cycles</code> (see carch.h).</p>
+  </section>
+
+  <section class="panel">
+    <h2>Run</h2>
+    <div class="status" id="status">Idle</div>
+    <div class="log" id="log"></div>
+    <div id="results"><p class="empty">Results appear here after a run.</p></div>
+    <h3>Previous runs</h3>
+    <div class="runs" id="runs"></div>
+  </section>
+</main>
+
+<script>
+const $ = id => document.getElementById(id);
+const code = $("code"), gutter = $("gutter");
+let logNext = 0, polling = false, fpgaCache = null;
+
+function store(k, v) { try { localStorage.setItem(k, v); } catch (e) {} }
+function load(k) { try { return localStorage.getItem(k); } catch (e) { return null; } }
+
+// ---------------------------------------------------------------- theme
+(function () {
+  const t = load("carch-theme");
+  if (t) document.documentElement.dataset.theme = t;
+  $("theme").onclick = () => {
+    const dark = getComputedStyle(document.documentElement).getPropertyValue("--bg").trim() === "#12161d";
+    const next = dark ? "light" : "dark";
+    document.documentElement.dataset.theme = next;
+    store("carch-theme", next);
+  };
+})();
+
+// ---------------------------------------------------------------- editor
+function lines() {
+  const n = code.value.split("\n").length;
+  let s = "";
+  for (let i = 1; i <= n; i++) s += i + "\n";
+  gutter.textContent = s;
+  gutter.scrollTop = code.scrollTop;
+}
+code.addEventListener("input", () => { lines(); store("carch-code", code.value); });
+code.addEventListener("scroll", () => { gutter.scrollTop = code.scrollTop; });
+code.addEventListener("keydown", e => {
+  if (e.key === "Tab") {
+    e.preventDefault();
+    const s = code.selectionStart, en = code.selectionEnd;
+    code.setRangeText("    ", s, en, "end");
+    lines(); store("carch-code", code.value);
+  } else if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) {
+    e.preventDefault(); start("sim");
+  }
+});
+
+async function api(path, body) {
+  const r = await fetch(path, body ? { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) } : {});
+  const j = await r.json();
+  if (!r.ok) throw new Error(j.error || r.statusText);
+  return j;
+}
+
+async function initExamples() {
+  const ex = await api("/api/examples");
+  const sel = $("examples");
+  ex.forEach(e => { const o = document.createElement("option"); o.value = e.name; o.textContent = e.name.replace(/_/g, " "); sel.appendChild(o); });
+  sel.onchange = () => {
+    const e = ex.find(x => x.name === sel.value);
+    if (e) { code.value = e.code; lines(); store("carch-code", code.value); }
+    sel.value = "";
+  };
+  const saved = load("carch-code");
+  code.value = saved || (ex[0] ? ex[0].code : "");
+  lines();
+}
+
+// ---------------------------------------------------------------- runs
+function setBusy(b, mode) {
+  $("sim").disabled = b; $("board").disabled = b;
+  $("status").textContent = b ? (mode === "board" ? "Running on the FPGA…" : "Simulating…") : $("status").textContent;
+}
+
+async function start(mode) {
+  try {
+    await api("/api/start", { code: code.value, mode, max_clocks: +$("maxc").value || 3000000 });
+  } catch (e) { $("status").textContent = "Could not start: " + e.message; return; }
+  $("log").textContent = ""; logNext = 0;
+  $("results").innerHTML = "";
+  setBusy(true, mode);
+  poll();
+}
+$("sim").onclick = () => start("sim");
+$("board").onclick = () => start("board");
+
+async function poll() {
+  if (polling) return;
+  polling = true;
+  try {
+    for (;;) {
+      const s = await api("/api/status?since=" + logNext);
+      s.log.forEach(l => {
+        const d = document.createElement("div");
+        d.textContent = l;
+        if (/ERROR/.test(l)) d.className = "err";
+        $("log").appendChild(d);
+      });
+      logNext = s.next;
+      $("log").scrollTop = $("log").scrollHeight;
+      if (!s.busy) {
+        setBusy(false);
+        if (s.result) show(s.result);
+        refreshRuns();
+        break;
+      }
+      setBusy(true, s.mode);
+      await new Promise(r => setTimeout(r, 800));
+    }
+  } finally { polling = false; }
+}
+
+async function refreshRuns() {
+  const runs = await api("/api/runs");
+  const box = $("runs");
+  box.innerHTML = runs.length ? "" : '<p class="empty">None yet.</p>';
+  runs.forEach(r => {
+    const d = document.createElement("div");
+    const sp = r.error ? '<span class="bad">error</span>' : (r.speedup ? r.speedup.toFixed(2) + "×" : "");
+    d.innerHTML = `<span class="t">${esc(r.time || r.run)}</span><span class="t">${r.mode === "board" ? "FPGA" : "sim"}</span><span class="n">${esc(r.title || "(no comment)")}</span><span>${sp}</span>`;
+    d.onclick = async () => {
+      const j = await api("/api/run/" + r.run);
+      code.value = j.code; lines(); store("carch-code", code.value);
+      $("log").textContent = ""; show(j.result);
+    };
+    box.appendChild(d);
+  });
+}
+
+// ---------------------------------------------------------------- results
+function esc(s) { return String(s).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c])); }
+function n(x) { return x == null ? "–" : Number(x).toLocaleString("en-US"); }
+function f(x, d = 2) { return x == null || !isFinite(x) ? "–" : x.toFixed(d); }
+function t(cycles, mhz) { const us = cycles / mhz; return us >= 1000 ? f(us / 1000, 2) + " ms" : f(us, 1) + " µs"; }
+function hex(x) { return "0x" + (x >>> 0).toString(16).toUpperCase().padStart(8, "0"); }
+
+function show(res) {
+  const out = $("results");
+  const mhz = res.mhz || 50;
+  if (res.error) {
+    $("status").innerHTML = '<span class="bad">Failed</span>';
+    out.innerHTML = `<p class="bad">${esc(res.error)}</p>`;
+    return;
+  }
+  const c = res.results.cpu, a = res.results.accel;
+  $("status").innerHTML = `Done (${res.mode === "board" ? "on the PYNQ-Z2" : "simulation"}, run ${esc(res.run)})`;
+  const sp = c.total_cycles / a.total_cycles;
+  const fr = c.mm_cycles / c.total_cycles;
+  const amdahl = fr < 1 ? 1 / (1 - fr) : Infinity;
+  const mmsp = a.mm_cycles ? c.mm_cycles / a.mm_cycles : null;
+  const same = res.same_result;
+  let h = `<div class="hero">
+    <div><div class="big">${f(sp)}×</div><div class="lab">whole-program speed-up</div></div>
+    <div><div class="big">${mmsp ? f(mmsp, 1) + "×" : "–"}</div><div class="lab">inside matmul()</div></div>
+    <div><div class="big">${f(100 * fr, 1)}%</div><div class="lab">of CPU-only time in matmul<br>(limit ${isFinite(amdahl) ? f(amdahl, 1) + "×" : "∞"} by Amdahl)</div></div>
+    <div><span class="badge ${same ? "good" : "bad"}">${same ? "results match" : "results DIFFER"}</span></div>
+  </div>`;
+
+  const max = Math.max(c.total_cycles, a.total_cycles);
+  const bar = r => `<div class="bar"><span style="width:${100 * r.mm_cycles / max}%;background:var(--acc)"></span><span style="width:${100 * (r.total_cycles - r.mm_cycles) / max}%;background:var(--cpu)"></span></div>`;
+  h += `<h3>Where the time goes</h3><div class="bars">
+    <div>CPU only<br><span class="hint">${t(c.total_cycles, mhz)}</span></div>${bar(c)}
+    <div>CPU + accelerator<br><span class="hint">${t(a.total_cycles, mhz)}</span></div>${bar(a)}
+  </div><div class="legend"><span><i class="sw" style="background:var(--acc)"></i>matmul()</span><span><i class="sw" style="background:var(--cpu)"></i>everything else (same code on both)</span></div>`;
+
+  const rows = [
+    ["Total cycles", n(c.total_cycles), n(a.total_cycles)],
+    ["Time at " + mhz + " MHz", t(c.total_cycles, mhz), t(a.total_cycles, mhz)],
+    ["Instructions executed", n(c.total_instructions), n(a.total_instructions)],
+    ["CPI (cycles per instruction)", f(c.cpi), f(a.cpi)],
+    ["matmul() calls (on accelerator)", `${n(c.mm_calls)} (${n(c.mm_accel_calls)})`, `${n(a.mm_calls)} (${n(a.mm_accel_calls)})`],
+    ["Cycles in matmul()", n(c.mm_cycles), n(a.mm_cycles)],
+    ["Instructions in matmul()", n(c.mm_instructions), n(a.mm_instructions)],
+    ["Cycles outside matmul()", n(c.other_cycles), n(a.other_cycles)],
+    ["MACs (multiply-accumulates)", n(c.macs), n(a.macs)],
+    ["Cycles per MAC in matmul()", c.macs ? f(c.mm_cycles / c.macs, 1) : "–", a.macs ? f(a.mm_cycles / a.macs, 3) : "–"],
+    ["Accelerator fetch / compute cycles", "–", a.mm_accel_calls ? `${n(a.fetch_cycles)} / ${n(a.compute_cycles)}` : "–"],
+    ["Accelerator overhead (config, copy, wait)", "–", a.mm_accel_calls ? n(a.mm_cycles - a.fetch_cycles - a.compute_cycles) : "–"],
+    ["Array use while computing (of 16 MAC/cycle)", "–", a.compute_cycles ? f(100 * a.macs_accel / a.compute_cycles / 16, 1) + "%" : "–"],
+    ["job() result", hex(c.result), hex(a.result)],
+  ];
+  if (a.accel_errors) rows.push(["Accelerator errors (fell back to CPU)", "–", `<span class="bad">${n(a.accel_errors)}</span>`]);
+  h += `<h3>Measurements</h3><div class="tablewrap"><table><tr><th></th><th>CPU only</th><th>CPU + accelerator</th></tr>` +
+       rows.map(r => `<tr><td>${r[0]}</td><td>${r[1]}</td><td>${r[2]}</td></tr>`).join("") + `</table></div>`;
+
+  const regs = {};
+  (c.regions || []).forEach(r => { regs[r[0]] = { c: r }; });
+  (a.regions || []).forEach(r => { (regs[r[0]] = regs[r[0]] || {}).a = r; });
+  const ids = Object.keys(regs).sort((x, y) => x - y);
+  if (ids.length) {
+    h += `<h3>Regions (region_begin / region_end)</h3><div class="tablewrap"><table><tr><th>Region</th><th>CPU only cycles</th><th>CPU + accel cycles</th><th>Speed-up</th><th>Times run</th></tr>` +
+      ids.map(i => { const x = regs[i].c, y = regs[i].a;
+        return `<tr><td>${i}</td><td>${x ? n(x[1]) : "–"}</td><td>${y ? n(y[1]) : "–"}</td><td>${x && y && y[1] ? f(x[1] / y[1]) + "×" : "–"}</td><td>${n((x || y)[3])}</td></tr>`; }).join("") + `</table></div>`;
+  }
+
+  if ((c.prints || []).length || (a.prints || []).length) {
+    const len = Math.max(c.prints.length, a.prints.length);
+    let pr = "";
+    for (let i = 0; i < len; i++) {
+      const x = c.prints[i], y = a.prints[i];
+      const ok = x && y && x[0] === y[0] && x[1] === y[1];
+      pr += `<tr><td>${x ? x[0] : y[0]}</td><td>${x ? n(x[1]) : "–"}</td><td>${y ? n(y[1]) : "–"}</td><td class="${ok ? "good" : "bad"}">${ok ? "same" : "differ"}</td></tr>`;
+    }
+    h += `<h3>print_value()</h3><div class="tablewrap"><table><tr><th>id</th><th>CPU only</th><th>CPU + accel</th><th></th></tr>${pr}</table></div>`;
+    if (c.dropped || a.dropped) h += `<p class="warn">Only the first 48 values are kept.</p>`;
+  }
+
+  const asm = res.build && res.build.asm;
+  if (asm) h += asmSection(asm, c, a);
+
+  const fp = res.fpga || {};
+  if (fp.cpu || fp.accel) {
+    const g = (b, k, i) => fp[b] && fp[b][k] ? (i == null ? fp[b][k] : fp[b][k][i]) : null;
+    const ut = (b, k) => g(b, k) ? `${n(g(b, k, 0))} <span class="hint">(${f(g(b, k, 2), 1)}%)</span>` : "–";
+    const fr2 = [
+      ["LUTs", ut("cpu", "lut"), ut("accel", "lut")],
+      ["Flip-flops", ut("cpu", "ff"), ut("accel", "ff")],
+      ["Block RAM tiles", ut("cpu", "bram"), ut("accel", "bram")],
+      ["DSPs", ut("cpu", "dsp"), ut("accel", "dsp")],
+      ["  of which PicoRV32 (LUT / FF / DSP)", g("cpu", "picorv32") ? `${n(g("cpu", "picorv32", 0))} / ${n(g("cpu", "picorv32", 1))} / ${g("cpu", "picorv32", 4)}` : "–",
+                                                g("accel", "picorv32") ? `${n(g("accel", "picorv32", 0))} / ${n(g("accel", "picorv32", 1))} / ${g("accel", "picorv32", 4)}` : "–"],
+      ["  of which accelerator (LUT / FF / BRAM)", "–", g("accel", "matmul_accel") ? `${n(g("accel", "matmul_accel", 0))} / ${n(g("accel", "matmul_accel", 1))} / ${g("accel", "matmul_accel", 2)}` : "–"],
+      ["WNS at 50 MHz (setup slack)", g("cpu", "wns") != null ? f(g("cpu", "wns"), 3) + " ns" : "–", g("accel", "wns") != null ? f(g("accel", "wns"), 3) + " ns" : "–"],
+      ["Max clock (estimate)", g("cpu", "fmax") ? f(g("cpu", "fmax"), 1) + " MHz" : "–", g("accel", "fmax") ? f(g("accel", "fmax"), 1) + " MHz" : "–"],
+      ["On-chip power (Vivado estimate)", g("cpu", "power") ? f(g("cpu", "power"), 3) + " W" : "–", g("accel", "power") ? f(g("accel", "power"), 3) + " W" : "–"],
+      ["Energy for this program (estimate)", g("cpu", "power") ? f(g("cpu", "power") * c.total_cycles / mhz, 1) + " µJ" : "–", g("accel", "power") ? f(g("accel", "power") * a.total_cycles / mhz, 1) + " µJ" : "–"],
+    ];
+    h += `<h3>FPGA implementation (xc7z020, whole chip incl. ILA/VIO debug cores)</h3><div class="tablewrap"><table><tr><th></th><th>CPU-only bitstream</th><th>CPU + accelerator bitstream</th></tr>` +
+         fr2.map(r => `<tr><td>${r[0]}</td><td>${r[1]}</td><td>${r[2]}</td></tr>`).join("") + `</table></div>
+         <p class="hint">From fpga/out_baseline/summary.txt and fpga/out/summary.txt (report_summary). The hardware is the same for every program; only the RAM contents change.</p>`;
+  }
+  h += `<details><summary>Raw results JSON</summary><div class="log">${esc(JSON.stringify(res, null, 1))}</div></details>`;
+  out.innerHTML = h;
+  // Open each listing at its highlighted loop.
+  out.querySelectorAll(".asmscroll").forEach(box => {
+    const hot = box.querySelector("tr.hot");
+    if (hot) box.scrollTop = Math.max(0, hot.offsetTop - 60);
+  });
+}
+
+function asmTable(listing) {
+  return `<table class="asm">` + listing.rows.map(r =>
+    `<tr class="${r.cls}"><td class="ad">${r.addr.toString(16)}</td><td class="op">${esc(r.op)}</td><td class="ar">${esc(r.args.replace(/ <.*>$/, ""))}</td><td class="nt">${esc(r.note)}</td></tr>`).join("") + `</table>`;
+}
+
+function asmSection(asm, c, a) {
+  const macs = c.macs || 0;
+  const cl = asm.cpu.loop_len, al = asm.accel.loop_len;
+  const once = asm.accel.rows.length - al;
+  const perCall = a.mm_calls ? a.mm_instructions / a.mm_calls : 0;
+  const polls = a.mm_accel_calls ? Math.max(0, Math.round((perCall - once - 30) / al)  /* ~30 = matmul() dispatch instructions inside the timed window */) : null;
+  let h = `<h3>Inside matmul(): the machine code each system runs</h3>
+  <p class="hint">Disassembled from this build as real RV32IM instructions (no pseudo-instructions: e.g.
+  <code>addi rd,zero,imm</code> rather than <code>li</code>, <code>jalr zero,0(ra)</code> rather than <code>ret</code>,
+  <code>csrrs rd,cycle,zero</code> rather than <code>rdcycle</code>; registers by their ABI names, a0 = x10 …).
+  <code>matmul()</code> picks one of the two functions below.
+  The CPU-only system always runs <code>matmul_cpu</code>; the accelerator system runs <code>matmul_on_accel</code>
+  (and falls back to <code>matmul_cpu</code> if a size is above 64).</p>
+  <div class="asmlegend"><span><i class="sw" style="background:var(--hot)"></i>loop that repeats</span>
+  <span style="color:var(--accent)">■ accelerator register access</span><span style="opacity:.6">■ measurement bookkeeping (not part of the work)</span></div>
+  <div class="asmgrid">
+   <div class="asmbox"><div class="hd"><b>CPU only: matmul_cpu()</b><br>
+     The highlighted loop (${cl} instructions) runs once per multiply-accumulate:
+     ${n(macs)} times → about ${n(cl * macs)} instructions.
+     Measured inside matmul(): <b>${n(c.mm_instructions)}</b> instructions, ${n(c.mm_cycles)} cycles
+     (${macs ? f(c.mm_cycles / macs, 1) : "–"} cycles per MAC).</div>
+     <div class="asmscroll">${asmTable(asm.cpu)}</div></div>
+   <div class="asmbox"><div class="hd"><b>CPU + accelerator: matmul_on_accel()</b><br>
+     About ${once} instructions once per call: write M, N, K and the three addresses, START, then the
+     highlighted ${al}-instruction loop just waits for DONE while the 16 PEs do the ${n(a.macs_accel)} MACs in hardware.
+     Measured inside matmul(): <b>${n(a.mm_instructions)}</b> instructions, ${n(a.mm_cycles)} cycles
+     (${polls != null ? "≈ " + n(polls) + " STATUS reads per call" : "no accelerated calls"}).</div>
+     <div class="asmscroll">${asmTable(asm.accel)}</div></div>
+  </div>
+  <details style="margin-top:8px"><summary>matmul() itself: the dispatcher and the timing around both paths</summary>
+    <div class="asmscroll" style="margin-top:6px;border:1px solid var(--line);border-radius:6px">${asmTable(asm.dispatch)}</div></details>`;
+  return h;
+}
+
+initExamples();
+refreshRuns();
+api("/api/status").then(s => {
+  if (s.busy) { setBusy(true, s.mode); poll(); return; }
+  const m = location.hash.match(/run=([\w-]+)/);           // #run=<name> opens a saved run
+  if (m) api("/api/run/" + m[1]).then(j => { code.value = j.code; lines(); show(j.result); }).catch(() => {});
+});
+</script>
+</body>
+</html>

@@ -91,6 +91,12 @@ fpga-baseline-sim:
 	@$(VVP) -n sim/build/fpga/baseline.vvp > sim/build/fpga/baseline.log
 	@$(PYTHON) scripts/check_fpga_run.py sim/build/fpga/baseline.log
 
+# Write C in the browser; simulate it or run it on the PYNQ-Z2, CPU-only vs
+# CPU + accelerator (fpga/user/README.md).
+.PHONY: user-ui
+user-ui:
+	@cd fpga/user && $(PYTHON) server.py
+
 visualize:
 	@YOSYS="$(YOSYS)" $(PYTHON) visualizer/server.py
 
@@ -216,6 +222,7 @@ help:
 	@echo 'make fpga-rtl-sim        Run fpga_top (PYNQ-Z2 wrapper) in Icarus; prints the matrices'
 	@echo 'make fpga-run-sim        Several VIO jobs (the fpga/run.tcl flow) in Icarus, checked'
 	@echo 'make fpga-baseline-sim   fpga-run-sim jobs on the CPU-only baseline build'
+	@echo 'make user-ui             Program runner page: your C on CPU-only vs CPU + accelerator (sim or board)'
 	@echo 'make fpga-fw             Rebuild fpga/fw/fpga_demo.hex (needs the RISC-V toolchain)'
 	@echo 'make visualize-setup     Install local ELK layout and portable Yosys dependencies'
 	@echo 'make synth               Synthesize each block for Xilinx 7-series (Yosys)'

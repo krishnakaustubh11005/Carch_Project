@@ -92,6 +92,10 @@ phys_opt_design
 route_design
 write_checkpoint -force $out/post_route.dcp
 
+# RAM map for updatemem (fpga/user: new programs without a rebuild).
+source $here/user/write_mmi.tcl
+carch_write_mmi $out/ram.mmi
+
 report_utilization -file $out/utilization.rpt
 report_utilization -hierarchical -hierarchical_depth 3 -file $out/utilization_hier.rpt
 report_timing_summary -max_paths 10 -file $out/timing_summary.rpt
