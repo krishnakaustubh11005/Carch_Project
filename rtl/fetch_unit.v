@@ -19,7 +19,8 @@
 // This never overflows and reads one word per cycle when cols % 4 == 0,
 // whatever the alignment of base_addr.
 //
-// Control: start (ignored while busy) latches base_addr, rows and cols.
+// Control: start (ignored while busy) latches base_addr, rows and cols; the
+// first RAM read follows two setup cycles later (see setup below).
 // rows and cols must be 1..2**DIM_W. done pulses for one cycle after the last
 // write, when busy falls. Synchronous rst abandons the copy.
 module fetch_unit #(
@@ -64,18 +65,26 @@ module fetch_unit #(
 
     // Write counters: next group starts at M[row][col], col a multiple of 4.
     reg [DIM_W:0] col, row;
+    // Always cols_r - col. Kept in a register so this cycle's group size and
+    // the look-ahead below need no subtraction from cols_r (timing).
+    reg [DIM_W:0] remaining;
 
-    // Word range of the matrix, used only on start.
-    wire [2*DIM_W+1:0] total_bytes = rows * cols;
-    wire [BYTE_W-1:0] last_byte = base_addr + total_bytes - 1'b1;
+    // Word range of the matrix, worked out over two setup cycles after start
+    // so that the multiply and the address arithmetic are in different
+    // cycles (timing). RAM reads wait until setup reaches 0.
+    //   setup 2: total_bytes <= rows_r * cols_r
+    //   setup 1: words_left  <= last word - first word + 1
+    reg [1:0] setup;
+    reg [2*DIM_W+1:0] total_bytes;
+    wire [BYTE_W-1:0] first_byte = {next_word_addr, offset};
+    wire [BYTE_W-1:0] last_byte = first_byte + total_bytes - 1'b1;
     wire [RAM_ADDR_W:0] total_words =
-        last_byte[BYTE_W-1:2] - base_addr[BYTE_W-1:2] + 1'b1;
+        last_byte[BYTE_W-1:2] - next_word_addr + 1'b1;
 
     // This cycle's group.
-    wire [DIM_W:0] remaining = cols_r - col;
     wire [2:0] g = (remaining >= 4) ? 3'd4 : remaining[2:0];
     wire emit = busy && (count >= g);
-    wire row_end = emit && (col + g == cols_r);
+    wire row_end = emit && (remaining == {{(DIM_W-2){1'b0}}, g});
     wire last_group = row_end && (row + 1'b1 == rows_r);
 
     assign wr_en = emit;
@@ -102,11 +111,13 @@ module fetch_unit #(
     wire [DIM_W:0] row_n = row_end ? row + 1'b1 : row;
 
     // Look-ahead: the group that will leave next cycle, before the new word lands.
-    wire [DIM_W:0] remaining_n = cols_r - col_n;
+    // remaining_n = cols_r - col_n, derived from the remaining register.
+    wire [DIM_W:0] remaining_n = !emit ? remaining
+                               : (row_end ? cols_r : remaining - {{(DIM_W-2){1'b0}}, g});
     wire [2:0] g_n = (remaining_n >= 4) ? 3'd4 : remaining_n[2:0];
     wire [4:0] leaves_n = (count_n >= g_n) ? {2'b00, g_n} : 5'd0;
 
-    assign ram_en = busy && !last_group && (words_left != 0)
+    assign ram_en = busy && (setup == 2'd0) && !last_group && (words_left != 0)
                  && ({1'b0, count_n} + 5'd4 <= 5'd8 + leaves_n);
     assign ram_addr = next_word_addr;
 
@@ -120,7 +131,9 @@ module fetch_unit #(
             count <= 4'd0;
             col <= 0;
             row <= 0;
+            remaining <= 0;
             words_left <= 0;
+            setup <= 2'd0;
         end else if (start && !busy) begin
             busy <= 1'b1;
             done <= 1'b0;
@@ -128,20 +141,29 @@ module fetch_unit #(
             cols_r <= cols;
             offset <= base_addr[1:0];
             next_word_addr <= base_addr[BYTE_W-1:2];
-            words_left <= total_words;
+            words_left <= 0;
+            setup <= 2'd2;
             rdata_valid <= 1'b0;
             first_pending <= 1'b1;
             buffer <= 64'd0;
             count <= 4'd0;
             col <= 0;
             row <= 0;
+            remaining <= cols;
         end else begin
             done <= 1'b0;
-            if (busy) begin
+            if (busy && setup == 2'd2) begin
+                total_bytes <= rows_r * cols_r;
+                setup <= 2'd1;
+            end else if (busy && setup == 2'd1) begin
+                words_left <= total_words;
+                setup <= 2'd0;
+            end else if (busy) begin
                 buffer <= merged[63:0];
                 count <= count_n;
                 col <= col_n;
                 row <= row_n;
+                remaining <= remaining_n;
                 rdata_valid <= ram_en;
                 if (rdata_valid)
                     first_pending <= 1'b0;

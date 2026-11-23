@@ -17,17 +17,23 @@
 // A partial store there is dropped and sets bus_error.
 //
 // Result port: firmware writes a code (e.g. 1 = pass, 2+ = fail number);
-// result holds it and result_valid pulses for one cycle. Reads return result.
+// result holds it and result_valid pulses for one cycle. Reads at offset 0
+// return result; reads at offset 4*i (i = 1..CFG_WORDS) return cfg_in word i-1,
+// a read-only configuration the board wrapper supplies (fpga/fpga_top.v, from
+// the VIO); other offsets read 0. Writes to any offset go to result.
 //
 // bus_error is sticky until reset. irq: the accelerator drives irq[3]
 // (bits 0-2 are PicoRV32's timer, ebreak and bus error).
 module soc_top #(
     parameter FIRMWARE = "",            // $readmemh file loaded into the RAM
     parameter RAM_ADDR_W = 14,          // 2^14 words = 64 KB
-    parameter [0:0] ENABLE_IRQ = 0
+    parameter [0:0] ENABLE_IRQ = 0,
+    parameter CFG_WORDS = 10,           // read-only words at 0x8000_0004 onwards
+    parameter [0:0] ENABLE_ACCEL = 1    // 0: CPU-only baseline; 0x4000_0000 reads 0, writes ignored
 ) (
     input  wire clk,
     input  wire rst,                    // synchronous, active high
+    input  wire [32*CFG_WORDS-1:0] cfg_in,  // word i-1 at 0x8000_0000 + 4*i; tie to 0 if unused
 
     output wire trap,                   // CPU halted on a bad access or instruction
     output reg  [31:0] result,
@@ -102,21 +108,41 @@ module soc_top #(
     // ---------------------------------------------------------------- accelerator
     wire [31:0] accel_rdata;
 
-    matmul_accel #(.DIM_W(6), .RAM_ADDR_W(RAM_ADDR_W)) u_accel (
-        .clk(clk), .rst(rst),
-        .bus_valid(mem_valid && sel_accel && !accel_partial),
-        .bus_write(is_write), .bus_addr(mem_addr[7:0]), .bus_wdata(mem_wdata),
-        .bus_rdata(accel_rdata), .bus_ready(),
-        .irq(accel_irq),
-        .ram_en(ram_en_b), .ram_we(ram_we_b), .ram_addr(ram_addr_b),
-        .ram_wdata(ram_wdata_b), .ram_rdata(ram_rdata_b)
-    );
+    generate if (ENABLE_ACCEL) begin : g_accel
+        matmul_accel #(.DIM_W(6), .RAM_ADDR_W(RAM_ADDR_W)) u_accel (
+            .clk(clk), .rst(rst),
+            .bus_valid(mem_valid && sel_accel && !accel_partial),
+            .bus_write(is_write), .bus_addr(mem_addr[7:0]), .bus_wdata(mem_wdata),
+            .bus_rdata(accel_rdata), .bus_ready(),
+            .irq(accel_irq),
+            .ram_en(ram_en_b), .ram_we(ram_we_b), .ram_addr(ram_addr_b),
+            .ram_wdata(ram_wdata_b), .ram_rdata(ram_rdata_b)
+        );
+    end else begin : g_no_accel
+        // Baseline: the register window stays decoded (ID reads 0, so the
+        // firmware knows there is no accelerator); RAM port B is idle.
+        assign accel_rdata = 32'd0;
+        assign accel_irq = 1'b0;
+        assign ram_en_b = 1'b0;
+        assign ram_we_b = 4'd0;
+        assign ram_addr_b = {RAM_ADDR_W{1'b0}};
+        assign ram_wdata_b = 32'd0;
+    end endgenerate
 
     // ---------------------------------------------------------------- handshake and read mux
     assign mem_ready = ram_ready || (mem_valid && !sel_ram);
+    reg [31:0] io_rdata;
+    integer cfg_index;
+    always @(*) begin
+        io_rdata = (mem_addr[7:2] == 6'd0) ? result : 32'd0;
+        for (cfg_index = 0; cfg_index < CFG_WORDS; cfg_index = cfg_index + 1)
+            if (mem_addr[7:2] == cfg_index + 1)
+                io_rdata = cfg_in[32*cfg_index +: 32];
+    end
+
     assign mem_rdata = ram_ready ? ram_rdata_a :
                        sel_accel ? accel_rdata :
-                       sel_io    ? result : 32'd0;
+                       sel_io    ? io_rdata : 32'd0;
 
     always @(posedge clk) begin
         if (rst) begin

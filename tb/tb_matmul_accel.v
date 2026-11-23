@@ -246,8 +246,9 @@ module tb_matmul_accel;
             period = (K < 4) ? 4 : K;
             compute_expected = (1 + tiles*period + 10 + 1) + (1 + M*N + 1 + 1);
             // Fetch: each word once, plus at most one pause per row end and
-            // a few cycles of start and finish per matrix.
-            fetch_bound = (M*K + 6)/4 + (K*N + 6)/4 + M + K + 8;
+            // a few cycles of start and finish per matrix, plus the fetch
+            // unit's two setup cycles per matrix.
+            fetch_bound = (M*K + 6)/4 + (K*N + 6)/4 + M + K + 8 + 2*2;
             bus_rd(FETCH_CYCLES, fetch_cycles);
             bus_rd(COMPUTE_CYCLES, compute_cycles);
             check(compute_cycles == compute_expected, "COMPUTE_CYCLES differs from the expected count");

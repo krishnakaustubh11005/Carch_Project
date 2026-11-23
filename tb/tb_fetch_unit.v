@@ -128,6 +128,9 @@ module tb_fetch_unit;
     integer case_rows [0:NCASES-1];
     integer case_cols [0:NCASES-1];
     integer case_cycles [0:NCASES-1];
+    // fetch_unit spends two setup cycles after start before its first RAM
+    // read (multiply, then word count); the golden cycle model excludes them.
+    localparam SETUP_CYCLES = 2;
     reg case_scan [0:NCASES-1];
 
     task set_case;
@@ -224,9 +227,9 @@ module tb_fetch_unit;
 
             checks = checks + 1;
             $display("check %0d: case %0d cycles | expected<=%0d actual=%0d | %s",
-                checks, n, case_cycles[n], cycles,
-                (done === 1'b1 && cycles <= case_cycles[n]) ? "PASS" : "FAIL");
-            if (!(done === 1'b1 && cycles <= case_cycles[n]))
+                checks, n, case_cycles[n] + SETUP_CYCLES, cycles,
+                (done === 1'b1 && cycles <= case_cycles[n] + SETUP_CYCLES) ? "PASS" : "FAIL");
+            if (!(done === 1'b1 && cycles <= case_cycles[n] + SETUP_CYCLES))
                 fail_check("slower than the 8-byte look-ahead model");
 
             @(posedge clk);

@@ -23,7 +23,7 @@ module tb_soc_top;
     wire [31:0] result;
 
     soc_top #(.FIRMWARE(FIRMWARE)) dut (
-        .clk(clk), .rst(rst), .trap(trap),
+        .clk(clk), .rst(rst), .cfg_in(320'd0), .trap(trap),
         .result(result), .result_valid(result_valid), .bus_error(bus_error)
     );
 
